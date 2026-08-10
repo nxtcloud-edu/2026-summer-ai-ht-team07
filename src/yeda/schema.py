@@ -1,4 +1,4 @@
-"""YEDA 공용 데이터 계약(contract).
+"""Yield X 공용 데이터 계약(contract).
 
 이 파일은 **모든 모듈이 공유하는 단 하나의 진실 원천(single source of truth)** 이다.
 컬럼명, 물리적 허용 범위, 센서 분해능, 조정 가능 여부, 단조성 방향이 여기에 모여 있다.
@@ -356,7 +356,7 @@ class ValidationReport:
 
 
 def validate_frame(df, *, require_target: bool = True) -> ValidationReport:
-    """DataFrame 이 YEDA 스키마 계약을 지키는지 검사한다.
+    """DataFrame 이 Yield X 스키마 계약을 지키는지 검사한다.
 
     Args:
         df: 검사 대상 ``pandas.DataFrame``.

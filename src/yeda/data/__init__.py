@@ -1,1 +1,1 @@
-"""YEDA data 모듈."""
+"""Yield X data 모듈."""

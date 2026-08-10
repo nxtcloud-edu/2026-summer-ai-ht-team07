@@ -126,12 +126,14 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 - [x] `make data`가 경고 없이 통과 (성공률 65~80%, 베이즈 정확도 0.82~0.90)
   - ✅ 실측: 성공률 66.8%, 베이즈 정확도 0.872, 경고 0건
 - [x] `make train`이 4종 비교표를 `artifacts/metrics/model_comparison.csv`로 출력
-  - ✅ 4종: LogReg(0.803) / RF(0.829) / LightGBM(0.840) / LightGBM+단조(0.849)
+  - ✅ 4종: LogReg(0.809) / RF(0.832) / LightGBM(0.849) / LightGBM+단조(0.854)
 - [x] 홀드아웃 정확도 80% 초중반 (95%+ 시 생성기 재점검)
-  - ✅ 본선 모델 accuracy=0.849, PR-AUC=0.950
+  - ✅ 본선 모델 accuracy=0.854, PR-AUC=0.944, ECE=0.027
 - [x] `api/services/ml_service.py`가 모델 로드 + `predict()` + `get_shap_background()` 제공
+  - ✅ C가 `is_loaded` 프로퍼티, 모델 분석 모듈 추가 확장
 - [x] 모델이 없으면 mock 모드 폴백 (기존 로직 유지)
 - [x] `pytest tests/test_generator.py` 전부 통과
+  - ✅ + `test_ml_service_C.py`, `test_models_C.py`, `test_yield_experiment.py` 추가
 
 **인터페이스 접점**
 - ← A: `configs/data_gen.yaml`을 받아 그대로 사용
@@ -196,13 +198,15 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 | `requirements.txt` | 의존성 (변경 시 전원 공지) |
 
 **완료 정의 (DoD)**
-- [ ] `make api` → uvicorn 서버가 포트 8000에서 뜬다
-- [ ] `make frontend` → 프론트엔드가 로컬에서 서빙된다
-- [ ] 프론트엔드 4개 탭(예측/원인/가이드/알림)이 API를 호출하여 동작한다
-- [ ] 백엔드가 죽어도 프론트엔드 페이지가 로드된다 (에러 메시지 표시)
-- [ ] 데모 프리셋 버튼으로 원클릭 입력 가능
+- [x] `make api` → uvicorn 서버가 포트 8000에서 뜬다
+- [x] `make frontend` → 프론트엔드가 로컬에서 서빙된다 (포트 3000)
+- [x] 프론트엔드 4개 탭(예측/원인/가이드/알림)이 API를 호출하여 동작한다
+  - ✅ predict.js, explain.js, optimize.js, alert.js, history.js, dashboard.js 구현
+- [x] 백엔드가 죽어도 프론트엔드 페이지가 로드된다 (에러 메시지 표시)
+  - ✅ api.js에 fetch 에러 핸들링 + 토스트 알림 구현
+- [x] 데모 프리셋 버튼으로 원클릭 입력 가능
 - [x] `api/main.py`에 CORS 설정으로 S3 도메인 허용
-- [ ] `.env.example`에 DB 접속 정보(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME) 추가
+- [x] `.env.example`에 DB 접속 정보(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME) 추가
 - [x] `requirements.txt`에 `fastapi`, `uvicorn[standard]`, `httpx` 추가
 - [ ] **마지막 3시간**: 기능 추가 중단, 리허설·안정화만
 

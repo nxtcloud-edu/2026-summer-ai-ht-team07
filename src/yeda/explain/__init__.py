@@ -1,1 +1,1 @@
-"""YEDA explain 모듈."""
+"""Yield X explain 모듈."""

@@ -351,19 +351,23 @@ async function updateDashboardFromResult(data) {
     }
 
     // 4. 최적화 자동 호출 → 대시보드 섹션3 업데이트
+    //    위험 건 기준으로 최적화해야 gain이 현실적으로 보임
     if (AppState.lastPrediction) {
-        const optRes = await api.post("/api/optimize", AppState.lastPrediction);
+        // 위험 조건으로 최적화 (gain이 더 큼)
+        const riskInput = csvData
+            ? csvData.find(row => Object.values(row).every(v => v !== null) && row.pin_speed > 1.2)
+            : null;
+        const optInput = riskInput || AppState.lastPrediction;
+
+        const optRes = await api.post("/api/optimize", optInput);
         if (optRes.ok) {
             AppState.lastOptimizeData = optRes.data;
             renderDashOptimizeFromResult(optRes.data);
 
-            // 추세 차트 — Lot 평균 수율 + gain_pp로 최적화 라인 계산
-            // (단건 최적화 결과를 Lot에 그대로 쓰면 비현실적이므로, gain만 활용)
+            // 추세 차트 — gain_pp를 Lot 평균에 적용
             const gainPp = optRes.data.gain_pp || 0;
-            // 모든 이력 포인트에 최적화 적용 수율 채움
             dashHistory.forEach(record => {
-                if (record.probability != null && record.optimized_probability == null) {
-                    // 현재 수율 + gain (단, 100% 초과하지 않도록)
+                if (record.probability != null) {
                     record.optimized_probability = Math.min(1.0, record.probability + gainPp / 100);
                 }
             });

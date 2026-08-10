@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YEDA — 다이 픽업 수율 최적화</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+    <!-- 헤더 -->
+    <header class="header">
+        <div class="header-left">
+            <h1 class="logo">YEDA</h1>
+            <span class="subtitle">다이 픽업 수율 최적화</span>
+        </div>
+        <div class="header-right">
+            <span id="server-status" class="status-badge status-unknown">서버 확인 중...</span>
+        </div>
+    </header>
+
+    <!-- 탭 네비게이션 -->
+    <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="dashboard">대시보드</button>
+        <button class="tab-btn" data-tab="predict">예측</button>
+        <button class="tab-btn" data-tab="explain">원인 분석</button>
+        <button class="tab-btn" data-tab="optimize">가이드</button>
+        <button class="tab-btn" data-tab="alert">알림</button>
+        <button class="tab-btn" data-tab="history">이력 &amp; 경보</button>
+    </nav>
+
+    <!-- 탭 콘텐츠 -->
+    <main class="tab-content">
+        <!-- 대시보드 -->
+        <section id="tab-dashboard" class="tab-panel active">
+            <div class="dash-header">
+                <h2 class="dash-title">YEDA Dashboard</h2>
+                <span class="dash-badge">Demo</span>
+            </div>
+
+            <!-- 섹션 1: 수율 예측 & 실시간 모니터링 -->
+            <div class="dash-section">
+                <div class="dash-section-label"><span class="section-num">1</span> 수율 예측 &amp; 실시간 모니터링</div>
+                <div class="dash-monitor-grid">
+                    <!-- 예상 수율 게이지 -->
+                    <div class="card dash-yield-card">
+                        <h4>예상 수율 (현재 조건)</h4>
+                        <p id="dash-yield" class="dash-big-yield">89.2%</p>
+                        <div class="dash-target-row">
+                            <span>목표 수율</span>
+                            <strong id="dash-target">95.0%</strong>
+                        </div>
+                        <div class="dash-gauge">
+                            <div class="dash-gauge-track">
+                                <div id="dash-gauge-fill" class="dash-gauge-fill" style="width:89.2%"></div>
+                            </div>
+                            <div class="dash-gauge-labels">
+                                <span>70%</span><span>80%</span><span>90%</span><span>100%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 수율 추세 차트 -->
+                    <div class="card dash-trend-card">
+                        <h4>수율 추세 (최근 10 Lot)</h4>
+                        <canvas id="dash-trend-chart"></canvas>
+                    </div>
+                    <!-- 상태 패널 -->
+                    <div class="card dash-status-card">
+                        <div class="dash-lot-info">
+                            <h4>Lot ID</h4>
+                            <p id="dash-lot-id" class="dash-lot-value">LOT_240523</p>
+                        </div>
+                        <div class="dash-status-item">
+                            <h4>공정 상태</h4>
+                            <p id="dash-process-status" class="dash-status-value status-normal"><span class="status-dot green"></span> 정상</p>
+                        </div>
+                        <div class="dash-status-item">
+                            <h4>이상 알림</h4>
+                            <p id="dash-alert-status" class="dash-status-value"><span class="status-dot green"></span> 없음</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 섹션 2: 원인 분석 (변수 영향도) -->
+            <div class="dash-section">
+                <div class="dash-section-label"><span class="section-num">2</span> 원인 분석 (변수 영향도)</div>
+                <div class="dash-analysis-grid">
+                    <!-- Top 5 바 차트 -->
+                    <div class="card">
+                        <h4>주요 원인 변수 (Top 5)</h4>
+                        <canvas id="dash-importance-chart"></canvas>
+                    </div>
+                    <!-- 분석 결과 텍스트 -->
+                    <div class="card dash-analysis-text">
+                        <h4>분석 결과</h4>
+                        <p id="dash-analysis-desc">현재 공정에서 수율 저하에 가장 큰 영향을 준 변수는 'Pin pressure', 'Head vacuum', 'Pin height' 순으로 분석되었습니다.</p>
+                    </div>
+                    <!-- 조건 변경 시뮬레이션 -->
+                    <div class="card">
+                        <h4>조건 변경 시뮬레이션 (예시)</h4>
+                        <table class="data-table dash-sim-table">
+                            <thead>
+                                <tr><th>조건</th><th>예상 수율</th></tr>
+                            </thead>
+                            <tbody id="dash-sim-tbody">
+                                <tr><td>현재 조건 (Baseline)</td><td>89.2%</td></tr>
+                                <tr><td>조건 A</td><td>91.3%</td></tr>
+                                <tr><td>조건 B</td><td>92.7%</td></tr>
+                                <tr class="sim-recommended"><td>조건 C (추천)</td><td><strong>94.1%</strong></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 섹션 3: 최적 조건 시뮬레이션 & 추천 -->
+            <div class="dash-section">
+                <div class="dash-section-label"><span class="section-num">3</span> 최적 조건 시뮬레이션 &amp; 추천</div>
+                <div class="dash-optimize-grid">
+                    <div class="card card-wide">
+                        <h4>추천 최적 조건 (예시)</h4>
+                        <div class="dash-opt-layout">
+                            <table class="data-table dash-opt-table">
+                                <thead>
+                                    <tr>
+                                        <th>추천 변수</th>
+                                        <th>현재 조건</th>
+                                        <th>추천 조건</th>
+                                        <th>단위</th>
+                                        <th>변경 방향</th>
+                                        <th>예상 수율</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dash-opt-tbody">
+                                    <tr>
+                                        <td>Pin pressure</td><td>25 gf</td><td>28 gf</td><td>gf</td>
+                                        <td><span class="arrow-up">&#x2191;</span></td>
+                                        <td rowspan="4" class="opt-yield-cell"><strong id="dash-opt-yield">94.1%</strong></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Head vacuum</td><td>-63 kPa</td><td>-65 kPa</td><td>kPa</td>
+                                        <td><span class="arrow-down">&#x2193;</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>UV time</td><td>5.5 sec</td><td>6.0 sec</td><td>sec</td>
+                                        <td><span class="arrow-up">&#x2191;</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Pin speed</td><td>1.2 mm/s</td><td>1.1 mm/s</td><td>mm/s</td>
+                                        <td><span class="arrow-down">&#x2193;</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div class="dash-opt-comment">
+                                <h4>추천 코멘트</h4>
+                                <p id="dash-opt-comment-text">위 조건 적용 시 예상 수율이 약 <strong>4.9%</strong> 향상될 것으로 예측됩니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 핵심 가치 배너 -->
+            <div class="dash-value-banner">
+                <p>수율 예측 → 원인 분석 → 조건 시뮬레이션 → 최적 조건 추천까지 한 번에 제공하여</p>
+                <p class="highlight">작업자의 판단 시간을 줄이고, 불필요한 반복 테스트와 공정 비용을 절감합니다.</p>
+            </div>
+        </section>
+
+        <!-- 예측 -->
+        <section id="tab-predict" class="tab-panel">
+            <div class="predict-layout">
+                <div class="card predict-input">
+                    <h3>공정 변수 입력</h3>
+
+                    <!-- 입력 방식 전환 -->
+                    <div class="input-mode-toggle">
+                        <button type="button" class="toggle-btn active" id="mode-manual">수동 입력</button>
+                        <button type="button" class="toggle-btn" id="mode-csv">CSV 업로드</button>
+                    </div>
+
+                    <!-- 수동 입력 -->
+                    <div id="manual-input-section">
+                        <div class="preset-buttons" id="preset-buttons"></div>
+                        <form id="predict-form">
+                            <div id="sliders-container"></div>
+                            <button type="submit" class="btn btn-primary">예측하기</button>
+                        </form>
+                    </div>
+
+                    <!-- CSV 업로드 -->
+                    <div id="csv-input-section" class="hidden">
+                        <div class="csv-upload-area" id="csv-drop-zone">
+                            <div class="csv-upload-icon">&#128196;</div>
+                            <p>CSV 파일을 드래그하거나 클릭하여 업로드</p>
+                            <p class="hint">13개 공정 변수 컬럼이 포함된 CSV (여러 행 배치 예측 가능)</p>
+                            <input type="file" id="csv-file-input" accept=".csv" hidden>
+                        </div>
+                        <div id="csv-file-info" class="csv-file-info hidden">
+                            <span id="csv-filename"></span>
+                            <span id="csv-row-count"></span>
+                            <button type="button" class="btn-link" id="csv-remove-btn">제거</button>
+                        </div>
+                        <div class="csv-columns-hint">
+                            <details>
+                                <summary>필수 컬럼 목록 보기</summary>
+                                <code>uv_time, uv_intensity, pin_speed, pin_pressure, pin_height, head_vacuum, pin_vacuum, temperature, humidity, vacuum_status, runtime_hours, tape_type, die_thickness</code>
+                            </details>
+                        </div>
+                        <button type="button" class="btn btn-primary" id="csv-predict-btn" disabled>배치 예측 실행</button>
+                    </div>
+                </div>
+                <div class="card predict-result" id="predict-result">
+                    <h3>예측 결과</h3>
+                    <div id="result-content" class="result-placeholder">
+                        <p>공정 변수를 입력하고 "예측하기"를 누르세요.</p>
+                        <p class="hint">또는 CSV 파일을 업로드하여 배치 예측을 수행할 수 있습니다.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 원인 분석 -->
+        <section id="tab-explain" class="tab-panel">
+            <div class="card">
+                <h3>SHAP 기여도 분해</h3>
+                <p class="hint">예측 탭에서 먼저 예측을 수행하세요.</p>
+                <canvas id="shap-chart"></canvas>
+                <div id="explain-summary" class="explain-summary"></div>
+            </div>
+        </section>
+
+        <!-- 가이드 -->
+        <section id="tab-optimize" class="tab-panel">
+            <div class="card">
+                <h3>최적화 가이드</h3>
+                <p class="hint">예측 탭에서 먼저 예측을 수행하세요.</p>
+                <div id="optimize-summary" class="optimize-summary"></div>
+                <table id="optimize-table" class="data-table hidden">
+                    <thead>
+                        <tr>
+                            <th>변수</th>
+                            <th>현재값</th>
+                            <th>제안값</th>
+                            <th>변화량</th>
+                            <th>예상 개선</th>
+                        </tr>
+                    </thead>
+                    <tbody id="optimize-tbody"></tbody>
+                </table>
+                <div id="optimize-limitations" class="limitations"></div>
+            </div>
+        </section>
+
+        <!-- 알림 -->
+        <section id="tab-alert" class="tab-panel">
+            <div class="card">
+                <h3>알림 (Dry-Run)</h3>
+                <p class="hint">예측 탭에서 위험 조건으로 예측 후 알림을 발송하세요.</p>
+                <button id="send-alert-btn" class="btn btn-warning" disabled>알림 발송 (Dry-Run)</button>
+                <div id="alert-result" class="alert-result hidden"></div>
+            </div>
+        </section>
+
+        <!-- 이력 & 경보 -->
+        <section id="tab-history" class="tab-panel">
+            <div id="history-warning-banner" class="warning-banner hidden"></div>
+            <div class="card">
+                <h3>수율 추이</h3>
+                <canvas id="history-chart"></canvas>
+            </div>
+            <div class="card">
+                <h3>최근 예측 기록</h3>
+                <table id="history-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th>시각</th>
+                            <th>예측 성공률</th>
+                            <th>위험 등급</th>
+                            <th>모델</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody"></tbody>
+                </table>
+                <p id="history-empty" class="hint">아직 예측 이력이 없습니다.</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- 에러 토스트 -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- JS 로드 순서 -->
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/predict.js"></script>
+    <script src="js/explain.js"></script>
+    <script src="js/optimize.js"></script>
+    <script src="js/alert.js"></script>
+    <script src="js/history.js"></script>
+</body>
+</html>

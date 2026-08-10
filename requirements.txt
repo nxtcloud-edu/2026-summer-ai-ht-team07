@@ -31,6 +31,12 @@ scipy==1.17.1
 streamlit==1.61.1
 matplotlib==3.11.1
 
+# --- API (3-Tier) ---
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+pymysql==1.1.1
+sqlalchemy==2.0.41
+
 # --- 테스트 ---
 pytest==9.1.1
 

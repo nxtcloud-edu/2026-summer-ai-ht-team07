@@ -10,7 +10,7 @@ STREAMLIT ?= streamlit
 export PYTHONPATH := src
 
 .DEFAULT_GOAL := help
-.PHONY: help setup data train demo test lint clean all secom secom-data check
+.PHONY: help setup data train demo test lint clean all secom secom-data check api frontend deploy
 
 help:  ## 사용 가능한 명령 보기
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -30,6 +30,15 @@ train:  ## 모델 3종 학습·비교 후 본선 모델 저장
 
 train-fast:  ## 교차검증 생략 학습 (시간이 급할 때)
 	$(PYTHON) scripts/train.py --fast
+
+api:  ## FastAPI 백엔드 서버 실행 (포트 8000)
+	uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+frontend:  ## 프론트엔드 정적 파일 서빙 (포트 3000)
+	$(PYTHON) -m http.server 3000 --directory frontend
+
+deploy:  ## S3 + EC2 배포 (B의 스크립트 호출)
+	bash scripts/deploy.sh
 
 demo:  ## Streamlit 데모 실행 (없으면 데이터·모델 자동 생성)
 	bash scripts/run_demo.sh

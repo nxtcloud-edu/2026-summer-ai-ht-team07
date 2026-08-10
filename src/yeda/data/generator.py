@@ -18,7 +18,7 @@
     3. 상호작용항 3개 — 선형 모델로는 못 잡고 트리 앙상블이 필요한 구조.
     4. 라벨 생성 후 관측값에 센서 노이즈 + 분해능 반올림.
     5. 1~3% 결측 삽입.
-    6. 성공률 65~80%, 베이즈 정확도 80~88% 대역으로 자동 검증.
+    6. 성공률 65~80%, 베이즈 정확도 82~90% 대역으로 자동 검증.
     7. 시드 고정 + 파라미터 YAML 외부화.
 
 소유자: C(데이터·모델). 물리 계수(``configs/data_gen.yaml``)의 결정권은 A(공정물리).
@@ -70,6 +70,46 @@ class GenerationReport:
     warnings: list[str]
 
 
+def _sample_truncated_normal(
+    rng: np.random.Generator,
+    *,
+    center: float,
+    sigma: float,
+    low: float,
+    high: float,
+    size: int,
+) -> np.ndarray:
+    """거절 샘플링으로 범위 안의 절단정규분포를 뽑는다.
+
+    ``normal`` 표본을 사후 ``clip`` 하면 범위 밖 질량이 양 끝점에 쌓여 실제
+    절단정규분포가 되지 않는다. 여기서는 범위 밖 표본을 버리고 필요한 개수만큼
+    다시 뽑는다. 전달받은 ``Generator`` 만 사용하므로 시드 재현성도 유지된다.
+
+    Raises:
+        ValueError: 범위·표준편차·설정점 또는 표본 수가 유효하지 않은 경우.
+    """
+    if size < 0:
+        raise ValueError(f"size 는 0 이상이어야 합니다: {size}")
+    if not np.isfinite([center, sigma, low, high]).all():
+        raise ValueError("절단정규분포 파라미터는 모두 유한해야 합니다")
+    if low >= high:
+        raise ValueError(f"절단 범위가 잘못되었습니다: [{low}, {high}]")
+    if sigma <= 0:
+        raise ValueError(f"sigma 는 양수여야 합니다: {sigma}")
+    if not low <= center <= high:
+        raise ValueError(f"설정점 {center} 이 허용 범위 [{low}, {high}] 밖입니다")
+
+    samples = np.empty(size, dtype=float)
+    filled = 0
+    while filled < size:
+        candidates = rng.normal(center, sigma, size=size - filled)
+        accepted = candidates[(candidates >= low) & (candidates <= high)]
+        take = min(len(accepted), size - filled)
+        samples[filled : filled + take] = accepted[:take]
+        filled += take
+    return samples
+
+
 def _sample_conditions(config: dict[str, Any], rng: np.random.Generator) -> dict[str, np.ndarray]:
     """공정 조건의 '참값'을 샘플링한다 (센서 노이즈 이전).
 
@@ -82,7 +122,8 @@ def _sample_conditions(config: dict[str, Any], rng: np.random.Generator) -> dict
         rng: numpy 난수 생성기.
 
     Returns:
-        ``{피처명: 참값 배열}``. 모든 값은 허용 범위 안으로 클리핑된다.
+        ``{피처명: 참값 배열}``. 레시피 성분은 거절 샘플링한 절단정규분포이며,
+        모든 값이 허용 범위 안에 있다.
     """
     n = int(config["n_samples"])
     smp = config["sampling"]
@@ -96,12 +137,20 @@ def _sample_conditions(config: dict[str, Any], rng: np.random.Generator) -> dict
             cols[name] = (rng.random(n) < float(smp["tape_type_p1"])).astype(float)
             continue
 
-        uniform = rng.uniform(spec.low, spec.high, size=n)
         center = float(smp["setpoints"][name])
         sigma = (spec.high - spec.low) * spread_ratio
-        recipe = rng.normal(center, sigma, size=n)
-        values = np.where(recipe_mask, recipe, uniform)
-        cols[name] = np.clip(values, spec.low, spec.high)
+        values = np.empty(n, dtype=float)
+        n_recipe = int(recipe_mask.sum())
+        values[~recipe_mask] = rng.uniform(spec.low, spec.high, size=n - n_recipe)
+        values[recipe_mask] = _sample_truncated_normal(
+            rng,
+            center=center,
+            sigma=sigma,
+            low=spec.low,
+            high=spec.high,
+            size=n_recipe,
+        )
+        cols[name] = values
 
     return cols
 

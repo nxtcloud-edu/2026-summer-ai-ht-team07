@@ -26,7 +26,7 @@ if str(_SRC) not in sys.path:
 from yeda.alerts.email import notify, risk_level  # noqa: E402
 from yeda.io_utils import load_config  # noqa: E402
 from yeda.optimize.search import format_recommendations, recommend  # noqa: E402
-from yeda.schema import FEATURE_NAMES  # noqa: E402
+from yeda.schema import FEATURE_NAMES, SPEC_BY_NAME  # noqa: E402
 
 
 class MLService:
@@ -60,6 +60,15 @@ class MLService:
             self.is_mock = True
             self.model_name = None
             self.status = f"모델 로드 실패 → mock 모드: {type(exc).__name__}"
+
+    @property
+    def is_loaded(self) -> bool:
+        """실제 학습 번들이 정상 로드됐는지 반환한다.
+
+        is_mock의 반대 의미를 명시적인 서비스 계약으로 제공한다. UI/API가
+        내부 _bundle 구현을 직접 들여다보지 않게 하기 위한 상태값이다.
+        """
+        return self._bundle is not None and not self.is_mock
 
     # ---------------------------------------------------------------- 예측
 
@@ -134,7 +143,7 @@ class MLService:
 
         if self.is_mock:
             explanation = self._mock_explain(frame, ids, top_k)
-            base_value = 0.70
+            base_value = self._mock_base_probability()
         else:
             from yeda.explain.shap_explainer import explain_frame
 
@@ -214,9 +223,6 @@ class MLService:
         Returns:
             OptimizationResult 를 dict 로 변환한 결과.
         """
-        if self.is_mock:
-            return self._mock_optimize(values)
-
         result = recommend(self.predict_proba, values)
         formatted = format_recommendations(result)
 
@@ -294,26 +300,70 @@ class MLService:
     # ------------------------------------------------------------- Mock
 
     def _mock_predict(self, X: pd.DataFrame) -> np.ndarray:
-        """mock 예측: 선형 조합 기반 시그모이드."""
-        uv = (X["uv_time"] - 3.0) / 4.0
-        pressure = (X["pin_pressure"] - 20.0) / 20.0
-        vacuum = (X["head_vacuum"] + 70.0) / 10.0
-        runtime = 1.0 - X["runtime_hours"] / 24.0
-        logit = -1.0 + 2.0 * uv + 1.5 * pressure + 1.0 * vacuum + 0.5 * runtime
-        prob = 1.0 / (1.0 + np.exp(-logit))
-        return prob.to_numpy()
+        """스키마 방향만 따르는 결정론적 mock 예측.
+
+        mock은 실제 모델의 대체 성능을 주장하지 않는다. 다만 모델 파일이 없는
+        개발 환경에서도 진공 부호를 포함한 schema.MONOTONE 방향과 API 계약은
+        어기지 않아야 한다. 생성기의 잠재 점수나 계수는 의도적으로 참조하지 않는다.
+        """
+        logit = np.full(len(X), np.log(0.70 / 0.30), dtype=float)
+
+        for name in FEATURE_NAMES:
+            spec = SPEC_BY_NAME[name]
+            span = float(spec.high - spec.low)
+            normalized = np.clip(
+                (X[name].to_numpy(dtype=float) - float(spec.low)) / span,
+                0.0,
+                1.0,
+            )
+            if spec.monotone:
+                # 값 기준 방향이다. 진공 변수의 -1은 더 음수일수록 확률이 높다.
+                logit += 0.45 * float(spec.monotone) * (normalized - 0.5)
+            elif name in {"pin_height", "temperature"}:
+                # 단조 제약이 없는 두 연속 변수는 중앙 설정점에서 가장 안정적이라는
+                # 중립적인 데모 곡선만 둔다. tape_type에는 임의 효과를 만들지 않는다.
+                logit -= 0.30 * np.square(2.0 * normalized - 1.0)
+
+        return 1.0 / (1.0 + np.exp(-logit))
+
+    @staticmethod
+    def _mock_reference_frame(n_rows: int = 1) -> pd.DataFrame:
+        """mock 설명의 고정 기준점(각 스키마 범위 중앙)을 만든다."""
+        midpoint = {
+            name: (SPEC_BY_NAME[name].low + SPEC_BY_NAME[name].high) / 2.0
+            for name in FEATURE_NAMES
+        }
+        return pd.DataFrame([midpoint] * n_rows, columns=FEATURE_NAMES)
+
+    def _mock_base_probability(self) -> float:
+        """mock 설명 기준점의 성공 확률."""
+        return float(self._mock_predict(self._mock_reference_frame())[0])
 
     def _mock_explain(
         self, X: pd.DataFrame, ids: pd.Series, top_k: int | None
     ) -> pd.DataFrame:
-        """mock SHAP: 랜덤 기여도 생성."""
+        """mock 확률을 재현하는 결정론적 순차 기여도 분해.
+
+        전체 피처를 반환할 때 base + sum(contribution) == prediction이
+        부동소수 오차 안에서 성립한다. 이는 SHAP 자체가 아니라 모델 미탑재 시
+        UI 계약을 검증하기 위한 확률공간 waterfall이다.
+        """
         from yeda.schema import EXPLANATION_COLUMNS, ID_COL
 
-        rng = np.random.default_rng(42)
         rows = []
+        references = self._mock_reference_frame(len(X))
         for i in range(len(X)):
-            values = rng.normal(0, 5, size=len(FEATURE_NAMES))
-            order = np.argsort(-np.abs(values))
+            running = references.iloc[i].to_dict()
+            previous = float(self._mock_predict(pd.DataFrame([running]))[0])
+            contributions: list[float] = []
+            for name in FEATURE_NAMES:
+                running[name] = float(X.iloc[i][name])
+                current = float(self._mock_predict(pd.DataFrame([running]))[0])
+                contributions.append((current - previous) * 100.0)
+                previous = current
+
+            values = np.asarray(contributions, dtype=float)
+            order = np.argsort(-np.abs(values), kind="stable")
             if top_k:
                 order = order[:top_k]
             for j in order:
@@ -327,44 +377,6 @@ class MLService:
                     }
                 )
         return pd.DataFrame(rows, columns=list(EXPLANATION_COLUMNS))
-
-    def _mock_optimize(self, values: dict[str, float]) -> dict[str, Any]:
-        """mock 최적화: 조정 가능 변수를 범위 중앙으로 이동."""
-        from yeda.schema import ADJUSTABLE, SPEC_BY_NAME
-
-        baseline_prob = self.predict_one(values)
-        recommendations = []
-        suggested = dict(values)
-
-        for name in list(ADJUSTABLE)[:3]:
-            spec = SPEC_BY_NAME[name]
-            mid = (spec.low + spec.high) / 2
-            if abs(values[name] - mid) < 1e-6:
-                continue
-            delta = mid - values[name]
-            suggested[name] = mid
-            recommendations.append(
-                {
-                    "feature": name,
-                    "current_value": values[name],
-                    "suggested_value": mid,
-                    "delta": delta,
-                    "unit": spec.unit,
-                    "expected_gain_pp": 2.0,
-                }
-            )
-
-        optimized_prob = self.predict_one(suggested)
-        gain_pp = (optimized_prob - baseline_prob) * 100.0
-
-        return {
-            "baseline_prob": baseline_prob,
-            "optimized_prob": optimized_prob,
-            "gain_pp": gain_pp,
-            "recommendations": recommendations,
-            "formatted_text": [f"Mock: {len(recommendations)}개 변수 조정 제안"],
-            "n_evaluations": 0,
-        }
 
 
 @lru_cache(maxsize=1)

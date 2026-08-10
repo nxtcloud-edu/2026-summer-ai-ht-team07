@@ -7,10 +7,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import pytest
 
-from yeda.data.generator import generate
+from yeda.data.generator import _sample_conditions, generate
 from yeda.data.physics import bayes_accuracy, latent_score, sigmoid
 from yeda.io_utils import load_config
 from yeda.schema import FEATURE_NAMES, MONOTONE_CONSTRAINTS, SPEC_BY_NAME, TARGET, validate_frame
@@ -47,11 +49,37 @@ def test_reproducible(small_config: dict) -> None:
     assert first.equals(second)
 
 
-def test_class_balance(dataset, config: dict) -> None:
-    """성공률이 목표 대역(65~80%) 안에 있다."""
-    df, report = dataset
-    low, high = config["targets"]["success_rate"]
-    assert low <= report.success_rate <= high, f"성공률 {report.success_rate:.3f}"
+def test_configured_target_ranges(dataset, config: dict) -> None:
+    """성공률과 베이즈 정확도가 YAML 에 선언된 목표 대역 안에 있다."""
+    _, report = dataset
+    for metric in ("success_rate", "bayes_accuracy"):
+        low, high = config["targets"][metric]
+        value = getattr(report, metric)
+        assert low <= value <= high, f"{metric}={value:.3f}, target=[{low}, {high}]"
+
+
+def test_recipe_sampling_is_truncated_and_deterministic(small_config: dict) -> None:
+    """레시피 표본은 경계에 쌓이지 않는 진짜 절단정규분포이고 재현 가능하다.
+
+    산포를 의도적으로 크게 잡아 ``normal + clip`` 구현이라면 양 끝점에 상당한
+    질량이 생기게 한다. 거절 샘플링 구현에서는 연속분포 표본이 정확히 경계값과
+    같아질 확률이 0 이므로 경계 pile-up 이 없어야 한다.
+    """
+    cfg = deepcopy(small_config)
+    cfg["n_samples"] = 4096
+    cfg["sampling"]["recipe_ratio"] = 1.0
+    cfg["sampling"]["spread_ratio"] = 0.50
+
+    first = _sample_conditions(cfg, np.random.default_rng(20260810))
+    second = _sample_conditions(cfg, np.random.default_rng(20260810))
+
+    for name in FEATURE_NAMES:
+        np.testing.assert_array_equal(first[name], second[name])
+        if name == "tape_type":
+            continue
+        spec = SPEC_BY_NAME[name]
+        assert np.all(first[name] > spec.low), f"{name} 하한에 표본이 쌓였습니다"
+        assert np.all(first[name] < spec.high), f"{name} 상한에 표본이 쌓였습니다"
 
 
 def test_label_is_not_deterministic(small_config: dict) -> None:
@@ -112,14 +140,16 @@ def test_all_features_contribute(small_config: dict) -> None:
 
 
 def test_interactions_present(small_config: dict) -> None:
-    """상호작용항이 최소 2개 이상 실제로 작동한다."""
+    """현재 YAML 계약의 상호작용항 정확히 3개가 모두 실제로 작동한다."""
     df, _ = generate(small_config)
     columns = {name: df[name].fillna(df[name].median()).to_numpy() for name in FEATURE_NAMES}
     _, parts = latent_score(columns, small_config, return_parts=True)
 
-    interaction_keys = [key for key in parts if "_x_" in key]
-    assert len(interaction_keys) >= 2, f"상호작용항이 부족합니다: {interaction_keys}"
-    for key in interaction_keys:
+    expected = set(small_config["interactions"])
+    actual = set(parts) - set(FEATURE_NAMES)
+    assert len(expected) == 3, f"현재 설정의 상호작용항은 정확히 3개여야 합니다: {sorted(expected)}"
+    assert actual == expected, f"설정/실행 상호작용 불일치: expected={expected}, actual={actual}"
+    for key in expected:
         assert np.std(parts[key]) > 1e-6, f"{key} 가 상수입니다"
 
 

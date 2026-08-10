@@ -67,11 +67,9 @@ function renderPresetButtons() {
 function applyPreset(idx) {
     const values = PRESETS[idx].values;
     FEATURES.forEach(feat => {
-        const slider = document.getElementById(`slider-${feat.name}`);
-        const display = document.getElementById(`value-${feat.name}`);
-        if (slider && values[feat.name] !== undefined) {
-            slider.value = values[feat.name];
-            display.textContent = formatSliderValue(values[feat.name], feat);
+        const input = document.getElementById(`slider-${feat.name}`);
+        if (input && values[feat.name] !== undefined) {
+            input.value = values[feat.name];
         }
     });
 }
@@ -89,7 +87,7 @@ function formatSliderValue(val, feat) {
 }
 
 /**
- * 슬라이더 렌더링
+ * 슬라이더 렌더링 → 숫자 타이핑 입력으로 변경
  */
 function renderSliders() {
     const container = document.getElementById("sliders-container");
@@ -98,26 +96,20 @@ function renderSliders() {
         group.className = `slider-group ${feat.adjustable ? "" : "fixed"}`;
 
         const defaultVal = (feat.low + feat.high) / 2;
-        // step 맞춰 스냅
         const snapped = Math.round(defaultVal / feat.step) * feat.step;
+        const decimals = feat.step < 1 ? Math.max(1, -Math.floor(Math.log10(feat.step))) : 0;
 
         group.innerHTML = `
             <div class="slider-label">
                 <span class="name">${feat.korean}${!feat.adjustable ? '<span class="badge-fixed">고정</span>' : ''}</span>
-                <span><span class="value" id="value-${feat.name}">${formatSliderValue(snapped, feat)}</span><span class="unit">${feat.unit}</span></span>
+                <span class="unit">${feat.unit}</span>
             </div>
-            <input type="range" id="slider-${feat.name}" 
+            <input type="number" id="slider-${feat.name}" 
                    min="${feat.low}" max="${feat.high}" step="${feat.step}" 
-                   value="${snapped}">
+                   value="${Number(snapped).toFixed(decimals)}"
+                   class="number-input">
         `;
         container.appendChild(group);
-
-        // 슬라이더 변경 이벤트
-        const slider = group.querySelector("input[type=range]");
-        const display = group.querySelector(".value");
-        slider.addEventListener("input", () => {
-            display.textContent = formatSliderValue(slider.value, feat);
-        });
     });
 }
 
@@ -226,18 +218,18 @@ function setupInputModeToggle() {
     const manualSection = document.getElementById("manual-input-section");
     const csvSection = document.getElementById("csv-input-section");
 
-    manualBtn.addEventListener("click", () => {
-        manualBtn.classList.add("active");
-        csvBtn.classList.remove("active");
-        manualSection.classList.remove("hidden");
-        csvSection.classList.add("hidden");
-    });
-
     csvBtn.addEventListener("click", () => {
         csvBtn.classList.add("active");
         manualBtn.classList.remove("active");
         csvSection.classList.remove("hidden");
         manualSection.classList.add("hidden");
+    });
+
+    manualBtn.addEventListener("click", () => {
+        manualBtn.classList.add("active");
+        csvBtn.classList.remove("active");
+        manualSection.classList.remove("hidden");
+        csvSection.classList.add("hidden");
     });
 }
 

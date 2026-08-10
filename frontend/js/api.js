@@ -6,7 +6,7 @@
 // API 베이스 URL — 환경에 따라 자동 전환
 const API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://localhost:8000"
-    : `${window.location.protocol}//${window.location.hostname}:8000`;
+    : "http://18.213.110.138:8000";
 
 /**
  * API 호출 공통 래퍼

@@ -42,9 +42,11 @@ function renderOptimizeResult(data) {
     const tbody = document.getElementById("optimize-tbody");
     const limitations = document.getElementById("optimize-limitations");
 
-    // 요약
-    const currentPct = data.current_probability != null ? (data.current_probability * 100).toFixed(1) : "—";
-    const optimizedPct = data.optimized_probability != null ? (data.optimized_probability * 100).toFixed(1) : "—";
+    // 요약 — D의 응답(baseline_prob/optimized_prob)과 E의 mock(current_probability) 양쪽 호환
+    const currentProb = data.baseline_prob ?? data.current_probability;
+    const optimizedProb = data.optimized_prob ?? data.optimized_probability;
+    const currentPct = currentProb != null ? (currentProb * 100).toFixed(1) : "—";
+    const optimizedPct = optimizedProb != null ? (optimizedProb * 100).toFixed(1) : "—";
     const gainPp = data.gain_pp != null ? data.gain_pp.toFixed(1) : "—";
 
     summary.innerHTML = `

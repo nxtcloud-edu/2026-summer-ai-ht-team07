@@ -1,0 +1,25 @@
+# YEDA 수율 최적화 오프라인 실험 설정 (소유자: C)
+# 모델은 자기 예측 수율이 아니라 홀드아웃 예측 품질로 먼저 고정한다.
+# 합성 physics oracle은 모든 추천을 동결한 뒤 사후 감사에만 사용한다.
+
+seed: 20260810
+cohort_size: 200
+target_yield: 0.90
+calibration_bins: 10
+
+bootstrap_repeats: 1000
+confidence_level: 0.95
+
+posthoc_audit:
+  min_oracle_gain_pp: 10.0
+  min_true_improvement_rate: 0.80
+  max_prediction_oracle_mae_pp: 6.0
+
+figure_dpi: 160
+outputs:
+  summary_csv: artifacts/metrics/yield_experiment_summary.csv
+  cohort_rows_csv: artifacts/metrics/yield_experiment_rows.csv
+  preset_comparison_csv: artifacts/metrics/yield_preset_model_comparison.csv
+  primary_presets_csv: artifacts/metrics/yield_primary_presets.csv
+  protocol_json: artifacts/metrics/yield_experiment_protocol.json
+  figure: artifacts/figures/yield_optimization_experiment.png

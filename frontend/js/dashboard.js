@@ -27,12 +27,17 @@ async function onDashboardEnter() {
  */
 async function loadDashboardData() {
     // 1. 최근 이력으로 추세 차트 + 현재 수율 업데이트
-    const historyRes = await api.get("/api/history?limit=10");
-    if (historyRes.ok && historyRes.data && Array.isArray(historyRes.data.records) && historyRes.data.records.length > 0) {
-        const records = historyRes.data.records;
+    const res = await api.get("/api/history?limit=10");
+
+    // D의 실 응답: 배열 직접 반환, E의 mock: { records: [...] } — 양쪽 호환
+    let records = [];
+    if (res.ok && res.data) {
+        records = Array.isArray(res.data) ? res.data : (res.data.records || []);
+    }
+
+    if (records.length > 0) {
         renderDashTrend(records);
-        // 가장 최근 예측으로 게이지 업데이트
-        const latest = records[records.length - 1];
+        const latest = records[0]; // D는 최신순 반환
         updateDashGauge(latest.probability);
         updateDashStatus(latest);
     } else {
@@ -125,7 +130,14 @@ function renderDashTrend(records) {
         return;
     }
 
-    const labels = records.map((r, i) => `Lot-${records.length - i}`);
+    const labels = records.map((r, i) => {
+        const ts = r.timestamp || r.created_at;
+        if (ts) {
+            const d = new Date(ts);
+            return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+        }
+        return `Lot-${records.length - i}`;
+    });
     const values = records.map(r => r.probability != null ? (r.probability * 100) : null);
 
     dashTrendChart = new Chart(ctx, {

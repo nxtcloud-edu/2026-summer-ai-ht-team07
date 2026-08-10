@@ -29,7 +29,8 @@ async function onExplainEnter() {
 
     if (hint) hint.classList.add("hidden");
 
-    const contributions = res.data.contributions || res.data;
+    // D의 실 응답: shap_values, E의 mock: contributions — 양쪽 호환
+    const contributions = res.data.shap_values || res.data.contributions || res.data;
     renderShapChart(contributions);
     renderExplainSummary(contributions);
 }

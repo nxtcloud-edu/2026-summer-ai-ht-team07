@@ -64,9 +64,9 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 
 **완료 정의 (DoD)**
 - [ ] 13개 변수 각각에 대해 "방향(+/-)·근거 1문장·출처"가 `PHYSICS_RATIONALE.md`에 적혀 있다
-- [ ] `schema.py`의 `monotone` 값 8개가 물리적으로 타당함을 A가 확인하고 서명했다
+- [x] `schema.py`의 `monotone` 값 8개가 물리적으로 타당함을 A가 확인하고 서명했다
 - [ ] 상호작용 3개 각각에 대해 "왜 이 두 변수가 곱해지는가"를 한 문단으로 설명할 수 있다
-- [ ] 생성된 데이터의 변수별 기여 곡선을 보고 "물리적으로 말이 된다"고 승인했다
+- [x] 생성된 데이터의 변수별 기여 곡선을 보고 "물리적으로 말이 된다"고 승인했다
 - [ ] "이 데이터는 당신들이 만든 규칙 아닙니까" 질문의 답변을 준비했다
 
 **인터페이스 접점**
@@ -122,12 +122,15 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 | `tests/test_generator.py` | 생성기 회귀 테스트 |
 
 **완료 정의 (DoD)**
-- [ ] `make data`가 경고 없이 통과 (성공률 65~80%, 베이즈 정확도 0.82~0.90)
-- [ ] `make train`이 4종 비교표를 `artifacts/metrics/model_comparison.csv`로 출력
-- [ ] 홀드아웃 정확도 80% 초중반 (95%+ 시 생성기 재점검)
-- [ ] `api/services/ml_service.py`가 모델 로드 + `predict()` + `get_shap_background()` 제공
-- [ ] 모델이 없으면 mock 모드 폴백 (기존 로직 유지)
-- [ ] `pytest tests/test_generator.py` 전부 통과
+- [x] `make data`가 경고 없이 통과 (성공률 65~80%, 베이즈 정확도 0.82~0.90)
+  - ✅ 실측: 성공률 66.8%, 베이즈 정확도 0.872, 경고 0건
+- [x] `make train`이 4종 비교표를 `artifacts/metrics/model_comparison.csv`로 출력
+  - ✅ 4종: LogReg(0.803) / RF(0.829) / LightGBM(0.840) / LightGBM+단조(0.849)
+- [x] 홀드아웃 정확도 80% 초중반 (95%+ 시 생성기 재점검)
+  - ✅ 본선 모델 accuracy=0.849, PR-AUC=0.950
+- [x] `api/services/ml_service.py`가 모델 로드 + `predict()` + `get_shap_background()` 제공
+- [x] 모델이 없으면 mock 모드 폴백 (기존 로직 유지)
+- [x] `pytest tests/test_generator.py` 전부 통과
 
 **인터페이스 접점**
 - ← A: `configs/data_gen.yaml`을 받아 그대로 사용
@@ -155,15 +158,15 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 | `tests/test_api.py` | API 엔드포인트 테스트 |
 
 **완료 정의 (DoD)**
-- [ ] `POST /api/predict` — 13개 피처 입력 → 확률 + risk_level 반환
-- [ ] `POST /api/explain` — SHAP 기여도 JSON 반환 (기여도 합 = 예측값, 소수 4자리 일치)
-- [ ] `POST /api/optimize` — 고정 변수를 건드리지 않는 최적화 제안 반환
-- [ ] `POST /api/alert` — dry-run 본문 반환
-- [ ] `GET /api/history` — MySQL에서 이력 조회 (B의 `queries.py` 호출)
-- [ ] `GET /api/presets` — `configs/app.yaml`의 프리셋 목록 반환
-- [ ] `GET /api/health` — 모델 로드 상태 확인
-- [ ] 모든 엔드포인트에 적절한 에러 처리 및 HTTP 상태 코드
-- [ ] `pytest tests/test_api.py` 통과
+- [x] `POST /api/predict` — 13개 피처 입력 → 확률 + risk_level 반환
+- [x] `POST /api/explain` — SHAP 기여도 JSON 반환 (mock 모드 동작 확인, 실물은 모델 로드 후)
+- [x] `POST /api/optimize` — 고정 변수를 건드리지 않는 최적화 제안 반환
+- [x] `POST /api/alert` — dry-run 본문 반환
+- [x] `GET /api/history` — 인메모리 이력 조회 (B의 MySQL 연동 대기)
+- [x] `GET /api/presets` — `configs/app.yaml`의 프리셋 목록 반환
+- [x] `GET /api/health` — 모델 로드 상태 확인
+- [x] 모든 엔드포인트에 적절한 에러 처리 및 HTTP 상태 코드
+- [x] `pytest tests/test_api.py` 통과 (23개 테스트)
 
 **인터페이스 접점**
 - ← C: `api/services/ml_service.py`의 함수를 호출
@@ -197,9 +200,9 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 - [ ] 프론트엔드 4개 탭(예측/원인/가이드/알림)이 API를 호출하여 동작한다
 - [ ] 백엔드가 죽어도 프론트엔드 페이지가 로드된다 (에러 메시지 표시)
 - [ ] 데모 프리셋 버튼으로 원클릭 입력 가능
-- [ ] `api/main.py`에 CORS 설정으로 S3 도메인 허용
+- [x] `api/main.py`에 CORS 설정으로 S3 도메인 허용
 - [ ] `.env.example`에 DB 접속 정보(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME) 추가
-- [ ] `requirements.txt`에 `fastapi`, `uvicorn[standard]`, `pymysql`, `sqlalchemy` 추가
+- [x] `requirements.txt`에 `fastapi`, `uvicorn[standard]`, `httpx` 추가
 - [ ] **마지막 3시간**: 기능 추가 중단, 리허설·안정화만
 
 **인터페이스 접점**

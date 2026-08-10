@@ -2,8 +2,8 @@
 
 사용::
 
-    python scripts/train.py            # 3종 비교 + 교차검증
-    python scripts/train.py --fast     # 교차검증 생략 (시간이 급할 때)
+    python scripts/train.py            # 4종 비교 + OOF 임계값 선택
+    python scripts/train.py --fast     # 호환용 별칭 (동일한 검증 실행)
 
 소유자: C(데이터·모델).
 """
@@ -20,16 +20,35 @@ from yeda.models.train import run  # noqa: E402
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="YEDA 모델 학습 및 3종 비교")
-    parser.add_argument("--fast", action="store_true", help="교차검증 생략")
+    parser = argparse.ArgumentParser(description="YEDA 모델 학습 및 4종 비교")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="이전 CLI 호환용 별칭 (OOF 임계값 선택은 항상 실행)",
+    )
     args = parser.parse_args()
 
-    comparison = run(with_cv=not args.fast)
+    if args.fast:
+        print("주의: --fast는 호환용이며 임계값 누수 방지를 위한 OOF 검증은 생략하지 않습니다.")
+    comparison = run()
     columns = [
-        c for c in ("label", "accuracy", "pr_auc", "recall", "f1_macro", "brier", "ece")
+        c
+        for c in (
+            "label",
+            "threshold",
+            "accuracy",
+            "pr_auc",
+            "recall",
+            "f1_macro",
+            "brier",
+            "ece",
+        )
         if c in comparison.columns
     ]
     print(comparison[columns].to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+    if comparison.attrs.get("monotone_verified"):
+        count = comparison.attrs.get("monotone_feature_count", "?")
+        print(f"\nLightGBM 단조 제약 설정 및 전체 {count}개 피처 grid 검증: PASS")
     print("\n비교표 저장: artifacts/metrics/model_comparison.csv")
     return 0
 

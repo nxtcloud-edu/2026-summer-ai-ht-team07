@@ -54,7 +54,13 @@ async function loadHistoryData() {
 
     const res = await api.get("/api/history?limit=50");
 
-    if (!res.ok || !res.data || !Array.isArray(res.data.records) || res.data.records.length === 0) {
+    // D의 실 응답: 배열 직접 반환, E의 mock: { records: [...] } — 양쪽 호환
+    let records = [];
+    if (res.ok && res.data) {
+        records = Array.isArray(res.data) ? res.data : (res.data.records || []);
+    }
+
+    if (records.length === 0) {
         tbody.innerHTML = "";
         emptyMsg.classList.remove("hidden");
         renderHistoryChart([]);
@@ -62,13 +68,13 @@ async function loadHistoryData() {
     }
 
     emptyMsg.classList.add("hidden");
-    const records = res.data.records;
 
-    // 테이블 렌더링
+    // 테이블 렌더링 — timestamp 또는 created_at 호환
     tbody.innerHTML = "";
     records.slice(0, 30).forEach(r => {
         const tr = document.createElement("tr");
-        const time = r.timestamp ? new Date(r.timestamp).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "—";
+        const ts = r.timestamp || r.created_at;
+        const time = ts ? new Date(ts).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "—";
         const prob = r.probability != null ? (r.probability * 100).toFixed(1) + "%" : "—";
         const level = r.risk_level || "normal";
         const levelBadge = `<span class="result-risk risk-${level}" style="font-size:0.75rem;">${getRiskLabel(level)}</span>`;
@@ -103,8 +109,9 @@ function renderHistoryChart(records) {
     }
 
     const labels = records.map((r, i) => {
-        if (r.timestamp) {
-            const d = new Date(r.timestamp);
+        const ts = r.timestamp || r.created_at;
+        if (ts) {
+            const d = new Date(ts);
             return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
         }
         return `#${i + 1}`;

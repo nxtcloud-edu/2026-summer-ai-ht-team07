@@ -1,0 +1,2 @@
+model,n_holdout,predicted_yield,actual_yield,calibration_gap,predicted_yield_pct,actual_yield_pct,calibration_gap_pp,absolute_calibration_gap_pp,causal,disclaimer
+lightgbm_monotone,1600,0.6715884180924447,0.674375,-0.002786581907555208,67.15884180924448,67.4375,-0.2786581907555208,0.2786581907555208,False,모델 민감도 분석이며 인과효과 또는 실제 공정 개선을 보장하지 않음.

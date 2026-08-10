@@ -3,20 +3,23 @@
 # =============================================================================
 # 소유자: C(데이터·모델).
 #
-# 3종 비교는 선택이 아니라 필수다. "왜 이 모델인가"에 답하려면 베이스라인이 있어야 한다.
+# 4종 비교는 선택이 아니라 필수다. "왜 이 모델인가"에 답하려면 베이스라인이 있어야 한다.
 # accuracy 단독 보고 금지 — PR-AUC / recall / macro-F1 / calibration 을 함께 본다.
 # =============================================================================
 
 seed: 20260810
 test_size: 0.2
-cv_folds: 5
+# 3-fold면 각 행은 여전히 정확히 한 번 OOF 예측되며 2분 실행 기준도 지킨다.
+cv_folds: 3
 
-# 확률을 수율(%)로 표시하므로 임계값을 명시적으로 관리한다.
-# 0.5 는 기본값일 뿐 최적값이 아니다. M4 단계에서 PR 곡선으로 재조정할 것.
-decision_threshold: 0.5
+# 홀드아웃을 보며 임계값을 맞추면 최종 평가가 낙관적으로 편향된다.
+# 학습 세트의 OOF 확률에서만 recall 제약 아래 macro-F1 최적점을 선택한다.
+threshold_selection:
+  objective: f1_macro
+  min_recall: 0.80
 
 # -----------------------------------------------------------------------------
-# 비교 대상 3종 (+ 단조 제약 변형)
+# 비교 대상 4종 (LR / RF / LightGBM / LightGBM 단조 제약)
 # -----------------------------------------------------------------------------
 models:
   logreg:
@@ -32,7 +35,7 @@ models:
     enabled: true
     label: "RandomForest"
     params:
-      n_estimators: 400
+      n_estimators: 250
       min_samples_leaf: 5
       max_features: "sqrt"
       n_jobs: -1
@@ -41,7 +44,7 @@ models:
     enabled: true
     label: "LightGBM (제약 없음)"
     params:
-      n_estimators: 500
+      n_estimators: 300
       learning_rate: 0.05
       num_leaves: 31
       min_child_samples: 20
@@ -57,7 +60,7 @@ models:
     # 여기에 숫자를 적지 않는 이유: 스키마와 어긋난 사본이 생기는 순간 방향이 뒤집힌다.
     apply_monotone: true
     params:
-      n_estimators: 500
+      n_estimators: 300
       learning_rate: 0.05
       num_leaves: 31
       min_child_samples: 20
@@ -69,6 +72,35 @@ models:
 # 배포(=데모)에 사용할 모델. SHAP TreeExplainer 가 필요하므로 트리 계열이어야 한다.
 # 단조 제약 모델을 기본으로 두는 것이 이 프로젝트의 기술 서사와 일치한다.
 primary_model: lightgbm_monotone
+
+# 스키마 제약 벡터와 실제 예측 단조성을 학습 종료 전에 함께 검사한다.
+verification:
+  # 실제 검증 대상/개수는 schema.MONOTONE_CONSTRAINTS의 0 아닌 항목에서 유도한다.
+  monotone_features: all_nonzero
+  monotone_grid_points: 101
+  monotone_atol: 1.0e-10
+  output_json: artifacts/metrics/monotone_verification.json
+
+# -----------------------------------------------------------------------------
+# 본선 모델 수율·민감도 분석
+# -----------------------------------------------------------------------------
+analysis:
+  seed: 20260810
+  permutation_repeats: 10
+  sweep_grid_points: 21
+  # 극단적·비현실적인 조합 과장을 줄이기 위해 홀드아웃 관측 q10~q90만 스윕한다.
+  sweep_quantile_low: 0.10
+  sweep_quantile_high: 0.90
+  figure_dpi: 160
+  outputs:
+    yield_summary_csv: artifacts/metrics/yield_summary.csv
+    permutation_summary_csv: artifacts/metrics/permutation_ablation.csv
+    permutation_repeats_csv: artifacts/metrics/permutation_ablation_repeats.csv
+    feature_sweep_csv: artifacts/metrics/feature_sweep.csv
+    feature_sweep_summary_csv: artifacts/metrics/feature_sweep_summary.csv
+    yield_figure: artifacts/figures/yield_calibration.png
+    permutation_figure: artifacts/figures/permutation_ablation.png
+    feature_sweep_figure: artifacts/figures/feature_sweep.png
 
 # -----------------------------------------------------------------------------
 # 평가
@@ -82,6 +114,8 @@ evaluation:
   comparison_csv: artifacts/metrics/model_comparison.csv
   detail_json: artifacts/metrics/model_metrics.json
   calibration_csv: artifacts/metrics/calibration_curve.csv
+  calibration_figure: artifacts/figures/calibration_curve.png
+  figure_dpi: 160
 
 output:
   model_path: artifacts/models/primary_model.joblib

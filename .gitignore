@@ -18,6 +18,12 @@ data/processed/*
 data/external/*
 !data/**/.gitkeep
 
+# 해커톤 재현·검토용 고정 합성 데이터셋은 함께 배포한다.
+!data/raw/yeda_synthetic.csv
+!data/raw/yeda_synthetic_seed20260811.csv
+!data/raw/yeda_synthetic_seed20260812.csv
+!data/raw/yeda_synthetic_seed20260813.csv
+
 artifacts/models/*
 artifacts/metrics/*
 artifacts/figures/*

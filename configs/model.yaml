@@ -77,6 +77,27 @@ verification:
   monotone_atol: 1.0e-10
 
 # -----------------------------------------------------------------------------
+# 본선 모델 수율·민감도 분석
+# -----------------------------------------------------------------------------
+analysis:
+  seed: 20260810
+  permutation_repeats: 10
+  sweep_grid_points: 21
+  # 극단적·비현실적인 조합 과장을 줄이기 위해 홀드아웃 관측 q10~q90만 스윕한다.
+  sweep_quantile_low: 0.10
+  sweep_quantile_high: 0.90
+  figure_dpi: 160
+  outputs:
+    yield_summary_csv: artifacts/metrics/yield_summary.csv
+    permutation_summary_csv: artifacts/metrics/permutation_ablation.csv
+    permutation_repeats_csv: artifacts/metrics/permutation_ablation_repeats.csv
+    feature_sweep_csv: artifacts/metrics/feature_sweep.csv
+    feature_sweep_summary_csv: artifacts/metrics/feature_sweep_summary.csv
+    yield_figure: artifacts/figures/yield_calibration.png
+    permutation_figure: artifacts/figures/permutation_ablation.png
+    feature_sweep_figure: artifacts/figures/feature_sweep.png
+
+# -----------------------------------------------------------------------------
 # 평가
 # -----------------------------------------------------------------------------
 evaluation:

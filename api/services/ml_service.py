@@ -225,6 +225,19 @@ class MLService:
             return float(probabilities[0])
         return probabilities.astype(float).tolist()
 
+    def predict_yield(self, values: Any) -> float:
+        """Return predicted batch yield in percent.
+
+        Yield is the mean pickup-success probability multiplied by 100. A
+        single die follows the same definition, so its yield is simply that
+        die's success probability expressed as a percentage.
+        """
+        return float(np.mean(self.predict_proba(values)) * 100.0)
+
+    def predict_defect_rate(self, values: Any) -> float:
+        """Return predicted batch defect rate in percent (``100 - yield``)."""
+        return float(100.0 - self.predict_yield(values))
+
     def _background_candidates(self) -> list[Path]:
         candidates: list[Path] = []
         if self.background_path is not None:
@@ -324,6 +337,16 @@ def predict_proba(values: Any) -> np.ndarray:
     return ml_service.predict_proba(values)
 
 
+def predict_yield(values: Any) -> float:
+    """Return mean pickup-success probability as batch yield percent."""
+    return ml_service.predict_yield(values)
+
+
+def predict_defect_rate(values: Any) -> float:
+    """Return predicted batch defect-rate percent (``100 - yield``)."""
+    return ml_service.predict_defect_rate(values)
+
+
 def get_shap_background(
     n_samples: int = 200,
     random_state: int = 0,
@@ -345,6 +368,8 @@ __all__ = [
     "is_mock",
     "ml_service",
     "predict",
+    "predict_defect_rate",
     "predict_proba",
+    "predict_yield",
     "reload_model",
 ]

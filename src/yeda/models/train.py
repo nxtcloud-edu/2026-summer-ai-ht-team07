@@ -1,9 +1,9 @@
-"""학습 파이프라인: 3종 비교 → 본선 모델 저장.
+"""학습 파이프라인: 4종 비교 → 본선 모델 저장.
 
 ``make train`` 의 진입점. 실행하면 다음이 만들어진다::
 
     artifacts/models/primary_model.joblib     서빙용 번들
-    artifacts/metrics/model_comparison.csv    3종 비교표 (발표자료 직결)
+    artifacts/metrics/model_comparison.csv    4종 비교표 (발표자료 직결)
     artifacts/metrics/model_metrics.json      전체 지표
     artifacts/metrics/calibration_curve.csv   신뢰도 곡선 데이터
 
@@ -27,7 +27,12 @@ from .evaluate import (
     compute_metrics,
     expected_calibration_error,
 )
-from .registry import ModelBundle, build_model, save_bundle
+from .registry import (
+    ModelBundle,
+    assert_monotone_prediction,
+    build_model,
+    save_bundle,
+)
 
 
 def train_one(name: str, split: Split, config: dict[str, Any]) -> tuple[Any, np.ndarray]:
@@ -111,16 +116,13 @@ def run(config: dict[str, Any] | None = None, *, with_cv: bool = True) -> pd.Dat
         fitted[name] = model
         probabilities[name] = y_prob
 
-    comparison = comparison_frame(results, labels)
-    comparison.to_csv(resolve(cfg["evaluation"]["comparison_csv"]), index=False, encoding="utf-8")
-    save_json(results, cfg["evaluation"]["detail_json"])
-
     primary = cfg["primary_model"]
+    if primary not in fitted:
+        raise ValueError(f"primary_model 이 활성 모델 목록에 없습니다: {primary}")
+
     cal = calibration_table(
         split.y_test, probabilities[primary], int(cfg["evaluation"]["calibration_bins"])
     )
-    cal.to_csv(resolve(cfg["evaluation"]["calibration_csv"]), index=False, encoding="utf-8")
-
     bundle = ModelBundle(
         model=fitted[primary],
         name=primary,
@@ -129,6 +131,22 @@ def run(config: dict[str, Any] | None = None, *, with_cv: bool = True) -> pd.Dat
         threshold=threshold,
         metrics=results[primary],
     )
+
+    verification = cfg.get("verification", {})
+    monotone_verified = False
+    if cfg["models"][primary].get("apply_monotone", False):
+        monotone_verified = assert_monotone_prediction(
+            bundle,
+            feature=str(verification.get("monotone_feature", "pin_speed")),
+            n_points=int(verification.get("monotone_grid_points", 101)),
+            atol=float(verification.get("monotone_atol", 1e-10)),
+        )
+
+    comparison = comparison_frame(results, labels)
+    comparison.attrs["monotone_verified"] = monotone_verified
+    comparison.to_csv(resolve(cfg["evaluation"]["comparison_csv"]), index=False, encoding="utf-8")
+    save_json(results, cfg["evaluation"]["detail_json"])
+    cal.to_csv(resolve(cfg["evaluation"]["calibration_csv"]), index=False, encoding="utf-8")
     save_bundle(bundle, cfg)
     return comparison
 

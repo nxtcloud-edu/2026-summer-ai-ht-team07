@@ -204,7 +204,7 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 - [ ] 백엔드가 죽어도 프론트엔드 페이지가 로드된다 (에러 메시지 표시)
 - [ ] 데모 프리셋 버튼으로 원클릭 입력 가능
 - [x] `api/main.py`에 CORS 설정으로 S3 도메인 허용
-- [ ] `.env.example`에 DB 접속 정보(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME) 추가
+- [x] `.env.example`에 DB 접속 정보(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME) 추가
 - [x] `requirements.txt`에 `fastapi`, `uvicorn[standard]`, `httpx` 추가
 - [ ] **마지막 3시간**: 기능 추가 중단, 리허설·안정화만
 

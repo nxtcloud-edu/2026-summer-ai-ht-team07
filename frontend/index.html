@@ -176,21 +176,12 @@
 
                     <!-- 입력 방식 전환 -->
                     <div class="input-mode-toggle">
-                        <button type="button" class="toggle-btn active" id="mode-manual">수동 입력</button>
-                        <button type="button" class="toggle-btn" id="mode-csv">CSV 업로드</button>
+                        <button type="button" class="toggle-btn active" id="mode-csv">CSV 업로드</button>
+                        <button type="button" class="toggle-btn" id="mode-manual">수동 입력</button>
                     </div>
 
-                    <!-- 수동 입력 -->
-                    <div id="manual-input-section">
-                        <div class="preset-buttons" id="preset-buttons"></div>
-                        <form id="predict-form">
-                            <div id="sliders-container"></div>
-                            <button type="submit" class="btn btn-primary">예측하기</button>
-                        </form>
-                    </div>
-
-                    <!-- CSV 업로드 -->
-                    <div id="csv-input-section" class="hidden">
+                    <!-- CSV 업로드 (기본 표시) -->
+                    <div id="csv-input-section">
                         <div class="csv-upload-area" id="csv-drop-zone">
                             <div class="csv-upload-icon">&#128196;</div>
                             <p>CSV 파일을 드래그하거나 클릭하여 업로드</p>
@@ -212,6 +203,15 @@
                         <button type="button" class="btn btn-retrain" id="csv-retrain-btn" disabled>이 데이터로 재학습</button>
                         <button type="button" class="btn btn-reset" id="csv-reset-btn">모델 초기화</button>
                         <div id="retrain-result" class="retrain-result hidden"></div>
+                    </div>
+
+                    <!-- 수동 입력 (숨김) -->
+                    <div id="manual-input-section" class="hidden">
+                        <div class="preset-buttons" id="preset-buttons"></div>
+                        <form id="predict-form">
+                            <div id="sliders-container"></div>
+                            <button type="submit" class="btn btn-primary">예측하기</button>
+                        </form>
                     </div>
                 </div>
                 <div class="card predict-result" id="predict-result">

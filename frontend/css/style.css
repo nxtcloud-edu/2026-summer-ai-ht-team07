@@ -1004,3 +1004,23 @@ canvas {
 .btn-reset:hover:not(:disabled) {
     background: #4b5563;
 }
+
+/* 숫자 입력 필드 */
+.number-input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.number-input:focus {
+    border-color: var(--primary);
+}
+
+.slider-group.fixed .number-input {
+    background: #f8fafc;
+    color: var(--text-muted);
+}

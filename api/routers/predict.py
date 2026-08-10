@@ -26,8 +26,14 @@ def predict(request: PredictRequest, service: MLService = Depends(get_ml_service
         values = request.to_feature_dict()
         probability = service.predict_one(values)
         level = service.get_risk_level(probability)
-        # 이력 저장 (B의 MySQL 연동 전까지 인메모리)
-        save_prediction(values, probability, level)
+        # 이력 저장 (DB 연동 or 인메모리 폴백)
+        save_prediction(
+            input_json=values,
+            probability=probability,
+            risk_level=level,
+            die_id=request.die_id,
+            model_name=service.model_name,
+        )
         return PredictResponse(
             die_id=request.die_id,
             probability=probability,

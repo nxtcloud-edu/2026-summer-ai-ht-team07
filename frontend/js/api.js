@@ -1,5 +1,5 @@
 /**
- * YEDA API 통신 모듈
+ * Yield X API 통신 모듈
  * fetch 래퍼 + 에러 핸들링 + 토스트 알림
  */
 

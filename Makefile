@@ -1,5 +1,5 @@
 # =============================================================================
-# YEDA — 단축 명령
+# Yield X — 단축 명령
 # =============================================================================
 # 발표 직전 새 노트북에서도 `make setup && make demo` 두 줄이면 화면이 떠야 한다.
 # 명령을 추가할 때는 반드시 README 의 실행 방법도 함께 고칠 것.
@@ -10,7 +10,7 @@ STREAMLIT ?= streamlit
 export PYTHONPATH := src
 
 .DEFAULT_GOAL := help
-.PHONY: help setup data train demo test lint clean all secom secom-data check api frontend deploy
+.PHONY: help setup data train demo test lint clean all secom secom-data check api frontend deploy init-db
 
 help:  ## 사용 가능한 명령 보기
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -36,6 +36,9 @@ api:  ## FastAPI 백엔드 서버 실행 (포트 8000)
 
 frontend:  ## 프론트엔드 정적 파일 서빙 (포트 3000)
 	$(PYTHON) -m http.server 3000 --directory frontend
+
+init-db:  ## MySQL 스키마 초기화 (scripts/init_db.sql 실행)
+	mysql < scripts/init_db.sql
 
 deploy:  ## S3 + EC2 배포 (B의 스크립트 호출)
 	bash scripts/deploy.sh

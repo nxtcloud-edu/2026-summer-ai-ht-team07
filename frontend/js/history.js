@@ -1,5 +1,5 @@
 /**
- * YEDA 이력 & 경보 탭 — 수율 추이 + 테이블 + 경보 배너
+ * Yield X 이력 & 경보 탭 — 수율 추이 + 테이블 + 경보 배너
  */
 
 let historyChart = null;

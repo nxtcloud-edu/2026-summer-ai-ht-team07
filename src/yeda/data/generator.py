@@ -1,4 +1,4 @@
-"""YEDA 합성 데이터 생성기.
+"""Yield X 합성 데이터 생성기.
 
 기존 프로토타입(``yeda_simulated_data.xlsx``)의 치명적 결함을 대체한다.
 

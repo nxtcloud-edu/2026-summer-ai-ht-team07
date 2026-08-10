@@ -1,5 +1,5 @@
 /**
- * YEDA 원인 분석 탭 — SHAP 기여도 바 차트
+ * Yield X 원인 분석 탭 — SHAP 기여도 바 차트
  */
 
 let shapChart = null;

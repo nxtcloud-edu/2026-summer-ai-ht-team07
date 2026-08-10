@@ -1,5 +1,5 @@
 /**
- * YEDA 알림 탭 — dry-run 알림 발송
+ * Yield X 알림 탭 — dry-run 알림 발송
  */
 
 /**

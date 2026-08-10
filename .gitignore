@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# YEDA .gitignore
+# ---------------------------------------------------------------------------
+
+# 비밀정보 — 절대 커밋 금지. SMTP 비밀번호, AWS 키.
+# 한 번 올라간 자격증명은 히스토리에서 지워도 되돌릴 수 없다.
+.env
+.env.*
+!.env.example
+*.pem
+credentials.json
+
+# 대용량 / 재생성 가능한 산출물
+# 데이터는 시드가 고정되어 있어 `make data` 로 언제든 동일하게 재생성된다.
+# 리포지토리에는 생성기(코드+설정)만 두고 결과물은 두지 않는다.
+data/raw/*
+data/processed/*
+data/external/*
+!data/**/.gitkeep
+
+artifacts/models/*
+artifacts/metrics/*
+artifacts/figures/*
+!artifacts/**/.gitkeep
+
+# 단, 발표에 쓸 최종 지표는 예외로 커밋한다 (git add -f).
+# 발표 당일 재학습이 실패해도 슬라이드 숫자는 남아 있어야 하기 때문이다.
+!artifacts/metrics/model_comparison.csv
+
+# 기존 프로토타입 데이터 (결함 있음 — 참고용으로만 로컬 보관)
+*.xlsx
+*.xls
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+
+# 노트북 출력 — 리뷰 불가능한 diff를 만든다. 커밋 전 출력을 지울 것.
+notebooks/*.html
+
+# OS / 에디터
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Streamlit
+.streamlit/secrets.toml

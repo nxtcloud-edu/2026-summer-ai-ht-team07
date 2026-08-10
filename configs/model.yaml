@@ -1,0 +1,88 @@
+# =============================================================================
+# YEDA 모델 학습 설정
+# =============================================================================
+# 소유자: C(데이터·모델).
+#
+# 3종 비교는 선택이 아니라 필수다. "왜 이 모델인가"에 답하려면 베이스라인이 있어야 한다.
+# accuracy 단독 보고 금지 — PR-AUC / recall / macro-F1 / calibration 을 함께 본다.
+# =============================================================================
+
+seed: 20260810
+test_size: 0.2
+cv_folds: 5
+
+# 확률을 수율(%)로 표시하므로 임계값을 명시적으로 관리한다.
+# 0.5 는 기본값일 뿐 최적값이 아니다. M4 단계에서 PR 곡선으로 재조정할 것.
+decision_threshold: 0.5
+
+# -----------------------------------------------------------------------------
+# 비교 대상 3종 (+ 단조 제약 변형)
+# -----------------------------------------------------------------------------
+models:
+  logreg:
+    enabled: true
+    label: "LogisticRegression (베이스라인)"
+    # 표준화 파이프라인이 자동으로 붙는다 (train.py 참조)
+    params:
+      max_iter: 2000
+      C: 1.0
+      class_weight: null
+
+  random_forest:
+    enabled: true
+    label: "RandomForest"
+    params:
+      n_estimators: 400
+      min_samples_leaf: 5
+      max_features: "sqrt"
+      n_jobs: -1
+
+  lightgbm:
+    enabled: true
+    label: "LightGBM (제약 없음)"
+    params:
+      n_estimators: 500
+      learning_rate: 0.05
+      num_leaves: 31
+      min_child_samples: 20
+      subsample: 0.9
+      subsample_freq: 1
+      colsample_bytree: 0.9
+      verbose: -1
+
+  lightgbm_monotone:
+    enabled: true
+    label: "LightGBM + 단조 제약 (본선 모델)"
+    # monotone_constraints 는 코드에서 schema.MONOTONE_CONSTRAINTS 를 주입한다.
+    # 여기에 숫자를 적지 않는 이유: 스키마와 어긋난 사본이 생기는 순간 방향이 뒤집힌다.
+    apply_monotone: true
+    params:
+      n_estimators: 500
+      learning_rate: 0.05
+      num_leaves: 31
+      min_child_samples: 20
+      subsample: 0.9
+      subsample_freq: 1
+      colsample_bytree: 0.9
+      verbose: -1
+
+# 배포(=데모)에 사용할 모델. SHAP TreeExplainer 가 필요하므로 트리 계열이어야 한다.
+# 단조 제약 모델을 기본으로 두는 것이 이 프로젝트의 기술 서사와 일치한다.
+primary_model: lightgbm_monotone
+
+# -----------------------------------------------------------------------------
+# 평가
+# -----------------------------------------------------------------------------
+evaluation:
+  # 보고할 지표. accuracy 는 목록에 있지만 단독으로 인용하지 않는다.
+  metrics: [accuracy, pr_auc, roc_auc, recall, precision, f1_macro, brier]
+  # 신뢰도 곡선(calibration): 확률을 수율 %로 말하려면 반드시 있어야 한다.
+  calibration_bins: 10
+  # 결과 저장 위치
+  comparison_csv: artifacts/metrics/model_comparison.csv
+  detail_json: artifacts/metrics/model_metrics.json
+  calibration_csv: artifacts/metrics/calibration_curve.csv
+
+output:
+  model_path: artifacts/models/primary_model.joblib
+  metadata_path: artifacts/models/primary_model.meta.json

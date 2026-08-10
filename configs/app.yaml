@@ -1,0 +1,101 @@
+# =============================================================================
+# YEDA Streamlit 앱 / 알림 설정
+# =============================================================================
+# 소유자: E(UI·통합).
+#
+# ⚠ 비밀정보(SMTP 비밀번호, API 키)를 여기 적지 않는다. .env 로 주입하며
+#    .env 는 .gitignore 에 있다. 리포지토리에 키가 올라가면 되돌릴 수 없다.
+# =============================================================================
+
+app:
+  title: "YEDA — 다이 픽업 수율 최적화"
+  subtitle: "반도체 후공정 다이 픽업 공정의 수율 예측 · 원인 분해 · 조건 최적화"
+  # 모델이 없어도 앱이 뜨게 한다. 데모 중 파일 하나 없다고 화면이 죽는 것이 최악이다.
+  allow_mock_mode: true
+  # SHAP 배경 표본 수. 크면 설명이 정확하지만 느려진다.
+  shap_background_size: 200
+
+# 위험도 구간 — schema.RISK_LEVELS 와 키가 일치해야 한다.
+# 예측 성공확률이 이 값 미만이면 해당 등급.
+risk_thresholds:
+  critical: 0.60      # 즉시 조치 필요
+  warning: 0.80       # 주의 관찰
+  # 그 이상은 normal
+
+# -----------------------------------------------------------------------------
+# 이메일 알림
+# -----------------------------------------------------------------------------
+alerts:
+  enabled: true
+  # dry_run: true 면 실제로 보내지 않고 메일 본문만 반환한다.
+  # 발표 리허설은 항상 dry_run 으로 돌린다. 본 시연에서만 false.
+  dry_run: true
+  # 이 등급 이하일 때 발송
+  trigger_level: critical
+  # 같은 조건으로 반복 발송하지 않도록 하는 최소 간격(초)
+  cooldown_seconds: 300
+
+  smtp:
+    # 실제 값은 .env 에서 읽는다 (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD)
+    host_env: SMTP_HOST
+    port_env: SMTP_PORT
+    user_env: SMTP_USER
+    password_env: SMTP_PASSWORD
+    use_tls: true
+
+  sender_name: "YEDA 수율 모니터링"
+  # 수신자는 데모용 계정. .env 의 ALERT_RECIPIENTS (쉼표 구분) 가 있으면 그것을 쓴다.
+  default_recipients: []
+  subject_template: "[YEDA 경보] 다이 {die_id} 예측 픽업 성공률 {probability:.1f}%"
+
+# 데모 시나리오 — 발표 중 손으로 슬라이더를 맞추다 실수하는 사고를 막는다.
+# 버튼 한 번으로 재현되는 고정 조건을 준비해 둔다.
+demo_presets:
+  - name: "정상 조건"
+    description: "레시피 설정점. 예측 성공률이 높게 나오는 기준 케이스."
+    values:
+      uv_time: 4.8
+      uv_intensity: 1180
+      pin_speed: 1.10
+      pin_pressure: 29.0
+      pin_height: 0.50
+      head_vacuum: -65.5
+      pin_vacuum: -50.0
+      temperature: 24.0
+      humidity: 44.0
+      vacuum_status: -95.5
+      runtime_hours: 9.0
+      tape_type: 1
+      die_thickness: 128.0
+  - name: "위험 조건 — 얇은 다이 + 빠른 핀"
+    description: "상호작용항이 드러나는 케이스. 정상 조건에서 다이 두께와 핀 속도만 바뀌었다 — 단일 변수만 보면 원인을 못 찾는다."
+    values:
+      uv_time: 4.8
+      uv_intensity: 1180
+      pin_speed: 1.40
+      pin_pressure: 29.0
+      pin_height: 0.50
+      head_vacuum: -65.5
+      pin_vacuum: -50.0
+      temperature: 24.0
+      humidity: 44.0
+      vacuum_status: -95.5
+      runtime_hours: 9.0
+      tape_type: 1
+      die_thickness: 112.0
+  - name: "위험 조건 — 마모 + 약한 진공"
+    description: "설비 상태(조정 불가)가 원인인 케이스. 레시피 최적화로 일부만 회복되고 한계가 남는다 — 콜릿 교체가 필요하다는 결론으로 이어진다."
+    values:
+      uv_time: 4.8
+      uv_intensity: 1180
+      pin_speed: 1.10
+      pin_pressure: 29.0
+      pin_height: 0.50
+      head_vacuum: -62.0
+      pin_vacuum: -50.0
+      temperature: 24.0
+      humidity: 44.0
+      vacuum_status: -92.0
+      runtime_hours: 20.0
+      tape_type: 0
+      die_thickness: 128.0

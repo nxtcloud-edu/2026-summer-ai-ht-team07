@@ -31,6 +31,7 @@ async function onExplainEnter() {
 
     // D의 실 응답: shap_values, E의 mock: contributions — 양쪽 호환
     const contributions = res.data.shap_values || res.data.contributions || res.data;
+    AppState.lastShapData = contributions;
     renderShapChart(contributions);
     renderExplainSummary(contributions);
 }
@@ -46,7 +47,7 @@ function renderShapChart(contributions) {
     const sorted = [...contributions].sort((a, b) => Math.abs(b.shap_value_pp) - Math.abs(a.shap_value_pp));
     const top = sorted.slice(0, 10); // 상위 10개만
 
-    const labels = top.map(c => c.korean || c.feature);
+    const labels = top.map(c => c.korean || getKoreanName(c.feature) || c.feature);
     const values = top.map(c => c.shap_value_pp);
     const colors = values.map(v => v >= 0 ? "rgba(22, 163, 74, 0.7)" : "rgba(220, 38, 38, 0.7)");
     const borderColors = values.map(v => v >= 0 ? "rgb(22, 163, 74)" : "rgb(220, 38, 38)");
@@ -109,13 +110,15 @@ function renderExplainSummary(contributions) {
 
     const top1 = sorted[0];
     const direction1 = top1.shap_value_pp >= 0 ? "높이고" : "낮추고";
+    const name1 = top1.korean || getKoreanName(top1.feature) || top1.feature;
 
-    let text = `현재 조건에서 <strong>${top1.korean || top1.feature}</strong>이(가) 성공률을 가장 크게 ${direction1} 있습니다 (${top1.shap_value_pp >= 0 ? "+" : ""}${top1.shap_value_pp.toFixed(1)}%p).`;
+    let text = `현재 조건에서 <strong>${name1}</strong>이(가) 성공률을 가장 크게 ${direction1} 있습니다 (${top1.shap_value_pp >= 0 ? "+" : ""}${top1.shap_value_pp.toFixed(1)}%p).`;
 
     if (sorted.length > 1) {
         const top2 = sorted[1];
+        const name2 = top2.korean || getKoreanName(top2.feature) || top2.feature;
         const direction2 = top2.shap_value_pp >= 0 ? "증가" : "감소";
-        text += ` <strong>${top2.korean || top2.feature}</strong>도 ${direction2} 방향으로 ${Math.abs(top2.shap_value_pp).toFixed(1)}%p 기여하고 있습니다.`;
+        text += ` <strong>${name2}</strong>도 ${direction2} 방향으로 ${Math.abs(top2.shap_value_pp).toFixed(1)}%p 기여하고 있습니다.`;
     }
 
     summary.innerHTML = `<p>${text}</p>

@@ -281,12 +281,21 @@ function setupCsvUpload() {
     // 배치 예측 버튼
     predictBtn.addEventListener("click", runBatchPrediction);
 
+    // 재학습 버튼
+    const retrainBtn = document.getElementById("csv-retrain-btn");
+    retrainBtn.addEventListener("click", runRetrain);
+
+    // 모델 초기화 버튼
+    const resetBtn = document.getElementById("csv-reset-btn");
+    resetBtn.addEventListener("click", runModelReset);
+
     // 제거 버튼
     removeBtn.addEventListener("click", () => {
         csvData = null;
         fileInput.value = "";
         document.getElementById("csv-file-info").classList.add("hidden");
         predictBtn.disabled = true;
+        retrainBtn.disabled = true;
     });
 }
 
@@ -322,6 +331,7 @@ function handleCsvFile(file) {
         info += ")";
         document.getElementById("csv-row-count").textContent = info;
         document.getElementById("csv-predict-btn").disabled = false;
+        document.getElementById("csv-retrain-btn").disabled = false;
     };
     reader.readAsText(file);
 }
@@ -406,7 +416,9 @@ async function runBatchPrediction() {
     btn.textContent = `예측 중... (${csvData.length}건)`;
     resultDiv.innerHTML = '<div class="spinner"></div><p style="text-align:center;margin-top:8px;">배치 예측 진행 중...</p>';
 
+    const startTime = performance.now();
     const res = await api.post("/api/predict/batch", { records: csvData });
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
 
     btn.disabled = false;
     btn.textContent = "배치 예측 실행";
@@ -417,13 +429,20 @@ async function runBatchPrediction() {
         return;
     }
 
-    renderBatchResult(res.data);
+    renderBatchResult(res.data, elapsed);
+
+    // 배치 예측 후 null이 없는 첫 번째 행을 lastPrediction으로 설정 → 원인 분석/가이드 탭 연동
+    if (csvData && csvData.length > 0) {
+        // null 값이 없는 행을 우선 선택 (SHAP 호출 안정성)
+        const cleanRow = csvData.find(row => Object.values(row).every(v => v !== null));
+        AppState.lastPrediction = cleanRow || csvData[0];
+    }
 }
 
 /**
  * 배치 예측 결과 렌더링
  */
-function renderBatchResult(data) {
+function renderBatchResult(data, elapsed = null) {
     const resultDiv = document.getElementById("result-content");
     const results = data.results || [];
 
@@ -439,6 +458,8 @@ function renderBatchResult(data) {
     const maxProb = Math.max(...probs);
     const criticalCount = results.filter(r => r.risk_level === "critical").length;
     const warningCount = results.filter(r => r.risk_level === "warning").length;
+
+    const timeHtml = elapsed ? `<div class="stat-box"><div class="stat-value">${elapsed}s</div><div class="stat-label">소요 시간</div></div>` : "";
 
     let html = `
         <div class="batch-summary">
@@ -466,6 +487,7 @@ function renderBatchResult(data) {
                 <div class="stat-value" style="color:var(--warning)">${warningCount}</div>
                 <div class="stat-label">주의(Warning)</div>
             </div>
+            ${timeHtml}
         </div>
         <div class="batch-result-wrapper">
             <table class="batch-result-table">
@@ -498,8 +520,126 @@ function renderBatchResult(data) {
     html += `</tbody></table></div>`;
     resultDiv.innerHTML = html;
 
-    // 대시보드 업데이트 (마지막 결과 기준)
-    const lastResult = results[results.length - 1];
-    AppState.lastResult = lastResult;
-    updateDashboardFromResult(lastResult);
+    // 대시보드 업데이트 — Lot 단위 평균 수율로 반영
+    const avgResult = {
+        probability: avgProb,
+        risk_level: avgProb < 0.60 ? "critical" : avgProb < 0.80 ? "warning" : "normal",
+        lower_bound: minProb,
+        upper_bound: maxProb,
+        model_name: results[0]?.model_name || null,
+    };
+    AppState.lastResult = avgResult;
+    updateDashboardFromResult(avgResult);
+}
+
+// =============================================================================
+// 재학습
+// =============================================================================
+
+/**
+ * 재학습 실행 — CSV 데이터를 백엔드에 보내 모델을 재학습시킨다
+ */
+async function runRetrain() {
+    if (!csvData || csvData.length === 0) {
+        showToast("CSV 데이터를 먼저 업로드하세요.", "error");
+        return;
+    }
+
+    const btn = document.getElementById("csv-retrain-btn");
+    const resultDiv = document.getElementById("retrain-result");
+
+    btn.disabled = true;
+    btn.textContent = "재학습 중... (수초 소요)";
+    resultDiv.classList.remove("hidden");
+    resultDiv.innerHTML = '<div class="spinner"></div> 모델 재학습 진행 중...';
+
+    const totalStart = performance.now();
+    const res = await api.post("/api/retrain", { records: csvData });
+
+    btn.disabled = false;
+    btn.textContent = "이 데이터로 재학습";
+
+    if (!res.ok) {
+        resultDiv.innerHTML = `<p style="color:var(--danger);">재학습 실패: ${res.error}</p>`;
+        showToast("재학습 실패", "error");
+        return;
+    }
+
+    const data = res.data;
+    const metrics = data.metrics || {};
+    const retrainElapsed = ((performance.now() - totalStart) / 1000).toFixed(1);
+
+    resultDiv.innerHTML = `
+        <p><strong>${data.message}</strong> (총 ${retrainElapsed}초)</p>
+        <p>모델: ${data.model_name || "—"} | 추가 데이터: ${data.rows_added}행</p>
+        <div class="metrics-grid">
+            <div class="metric-item">
+                <div class="metric-value">${metrics.accuracy ? (metrics.accuracy * 100).toFixed(1) + "%" : "—"}</div>
+                <div class="metric-label">Accuracy</div>
+            </div>
+            <div class="metric-item">
+                <div class="metric-value">${metrics.pr_auc ? (metrics.pr_auc * 100).toFixed(1) + "%" : "—"}</div>
+                <div class="metric-label">PR-AUC</div>
+            </div>
+            <div class="metric-item">
+                <div class="metric-value">${metrics.recall ? (metrics.recall * 100).toFixed(1) + "%" : "—"}</div>
+                <div class="metric-label">Recall</div>
+            </div>
+            <div class="metric-item">
+                <div class="metric-value">${metrics.f1_macro ? (metrics.f1_macro * 100).toFixed(1) + "%" : "—"}</div>
+                <div class="metric-label">F1-Macro</div>
+            </div>
+        </div>
+    `;
+
+    showToast("재학습 완료! 새 모델이 적용되었습니다.", "info");
+
+    // 서버 상태 배지 업데이트
+    const health = await checkHealth();
+    if (health.ok) updateServerStatus(health.data);
+
+    // 재학습 후 자동으로 배치 예측 재실행 → 오른쪽에 새 모델 기준 결과 표시
+    if (csvData && csvData.length > 0) {
+        await runBatchPrediction();
+    }
+}
+
+// =============================================================================
+// 모델 초기화
+// =============================================================================
+
+/**
+ * 모델을 초기 상태로 되돌린다 (업로드 데이터 삭제 + 원본 데이터로 재학습)
+ */
+async function runModelReset() {
+    const btn = document.getElementById("csv-reset-btn");
+    const resultDiv = document.getElementById("result-content");
+    const retrainResult = document.getElementById("retrain-result");
+
+    if (!confirm("모델을 초기 상태로 되돌립니다. 업로드된 학습 데이터가 모두 삭제됩니다. 계속할까요?")) {
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "초기화 중...";
+
+    const res = await api.post("/api/reset-model", {});
+
+    btn.disabled = false;
+    btn.textContent = "모델 초기화";
+
+    if (!res.ok) {
+        showToast(`초기화 실패: ${res.error}`, "error");
+        return;
+    }
+
+    showToast("모델이 초기 상태로 복원되었습니다.", "info");
+
+    // UI 초기화
+    retrainResult.classList.add("hidden");
+    resultDiv.innerHTML = '<p class="result-placeholder">모델이 초기화되었습니다. CSV를 업로드하여 예측하세요.</p>';
+
+    // 서버 상태 업데이트
+    const health = await checkHealth();
+    if (health.ok) updateServerStatus(health.data);
 }

@@ -945,3 +945,62 @@ canvas {
     font-size: 0.75rem;
     color: var(--text-muted);
 }
+
+/* 재학습 버튼 */
+.btn-retrain {
+    background: #7c3aed;
+    color: white;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.btn-retrain:hover:not(:disabled) {
+    background: #6d28d9;
+}
+
+.retrain-result {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f3e8ff;
+    border-radius: var(--radius);
+    border-left: 4px solid #7c3aed;
+    font-size: 0.85rem;
+}
+
+.retrain-result .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.retrain-result .metric-item {
+    text-align: center;
+    padding: 6px;
+    background: white;
+    border-radius: 4px;
+}
+
+.retrain-result .metric-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #7c3aed;
+}
+
+.retrain-result .metric-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+/* 모델 초기화 버튼 */
+.btn-reset {
+    background: #6b7280;
+    color: white;
+    width: 100%;
+    margin-top: 8px;
+    font-size: 0.8rem;
+}
+
+.btn-reset:hover:not(:disabled) {
+    background: #4b5563;
+}

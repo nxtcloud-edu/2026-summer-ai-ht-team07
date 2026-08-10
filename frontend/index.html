@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YEDA — 다이 픽업 수율 최적화</title>
+    <title>Yield_x — 다이 픽업 수율 최적화</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
@@ -11,7 +11,7 @@
     <!-- 헤더 -->
     <header class="header">
         <div class="header-left">
-            <h1 class="logo">YEDA</h1>
+            <h1 class="logo">Yield_x</h1>
             <span class="subtitle">다이 픽업 수율 최적화</span>
         </div>
         <div class="header-right">
@@ -209,6 +209,9 @@
                             </details>
                         </div>
                         <button type="button" class="btn btn-primary" id="csv-predict-btn" disabled>배치 예측 실행</button>
+                        <button type="button" class="btn btn-retrain" id="csv-retrain-btn" disabled>이 데이터로 재학습</button>
+                        <button type="button" class="btn btn-reset" id="csv-reset-btn">모델 초기화</button>
+                        <div id="retrain-result" class="retrain-result hidden"></div>
                     </div>
                 </div>
                 <div class="card predict-result" id="predict-result">

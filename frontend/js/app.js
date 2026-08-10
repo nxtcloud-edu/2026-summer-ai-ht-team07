@@ -7,6 +7,8 @@ const AppState = {
     currentTab: "dashboard",
     lastPrediction: null,   // 마지막 예측 입력값
     lastResult: null,       // 마지막 예측 결과
+    lastShapData: null,     // 마지막 SHAP 결과 (대시보드 연동용)
+    lastOptimizeData: null, // 마지막 최적화 결과 (대시보드 연동용)
     healthData: null,
 };
 

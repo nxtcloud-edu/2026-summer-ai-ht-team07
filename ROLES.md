@@ -1,44 +1,50 @@
-# ROLES.md — 역할 분담과 파일 소유권
+# ROLES.md — 3-Tier 아키텍처 역할 분담과 파일 소유권
 
 > **이 문서의 목적은 24시간 동안 5명이 서로 안 부딪히게 하는 것이다.**
 > 해커톤에서 진짜 리스크는 실력이 아니라 **git 충돌과 대기 시간**이다.
 > 아래 소유권 표를 지키면 대부분의 충돌이 원천 차단된다.
+>
+> **아키텍처**: 3-Tier (S3 프론트엔드 / EC2:8000 백엔드 / MySQL)
 
 ## 팀원 배정
 
 | 코드 | 전공 | 역할 | 한 줄 요약 |
 |---|---|---|---|
 | **A** | 전자공학과 | 공정물리 · 데이터 검수 | 물리 관계를 정의하고 생성기를 검수한다 |
-| **B** | 전기정보공학과 | 계측 · IoT 아키텍처 · Q&A 방어 | 센서 연동 설계와 기술 방어 논리를 만든다 |
-| **C** | 인공지능·소프트웨어학과 | 데이터 · 모델 | 생성기 구현과 3종 모델 비교 |
-| **D** | 인공지능·소프트웨어학과 | 설명 · 최적화 | SHAP 분해와 조건 탐색 |
-| **E** | 인공지능·소프트웨어학과 | UI · 통합 · 데모 | Streamlit, 알림, 마지막 3시간 안정화 |
+| **B** | 전기정보공학과 | DB · 인프라 · Q&A 방어 | MySQL 스키마, 배포 설계, 기술 방어 논리를 만든다 |
+| **C** | 인공지능·소프트웨어학과 | 데이터 · 모델 · ML 서비스 | 생성기 구현, 3종 모델 비교, API 모델 서비스 |
+| **D** | 인공지능·소프트웨어학과 | API 라우터 · 설명 · 최적화 | FastAPI 라우터, SHAP 분해, 조건 탐색 |
+| **E** | 인공지능·소프트웨어학과 | 프론트엔드 · 통합 · 데모 | 정적 프론트엔드, FastAPI 앱 초기화, 안정화 |
 
 > **TODO(팀장): 킥오프 때 A~E 자리에 실제 이름을 채워 넣을 것.**
-> 이 문서는 이름이 채워지기 전까지 미완성이다.
 
 ---
 
 ## 왜 이렇게 나눴는가
 
-### 하드웨어 전공자(A·B)에게 코딩 물량을 주지 않는 이유
+### 3-Tier 분업 원칙
 
-전자·전기정보 전공 2명에게 파이썬 파일을 나눠주는 것은 팀 전체 산출물 관점에서 손해다.
-이 프로젝트의 **차별점은 코드가 아니라 "공정 물리를 모델 제약으로 주입했다"는 서사**이고,
-그 서사의 신뢰도는 전적으로 A·B가 만든다.
+기존 Streamlit 1-Tier와 달리 3개 계층이 존재한다.
+E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
+따라서 **계층별로 소유자를 분산**한다:
 
-- 심사위원이 "이 변수 방향이 왜 이렇습니까"라고 물었을 때 답하는 사람이 A다.
-- "실제 설비에서 이 값을 어떻게 받아옵니까"에 답하는 사람이 B다.
-- 이 두 질문에 답을 못 하면 모델 성능이 아무리 좋아도 "합성 데이터 장난"으로 정리된다.
+| 계층 | 주 담당 | 보조 |
+|---|---|---|
+| Tier 1 — Frontend (S3) | **E** | D (API 연동 인터페이스) |
+| Tier 2 — Backend API (EC2:8000) | **D** (라우터) + **C** (ML 서비스) | E (main.py, CORS) |
+| Tier 3 — Database (MySQL) | **B** | D (쿼리 호출) |
 
-그래서 A·B의 산출물은 **문서와 판단**이며, 그것이 C·D의 코드보다 우선순위가 낮지 않다.
+### 하드웨어 전공자(A·B)의 역할
 
-### AI/SW 3명을 이렇게 쪼갠 이유
+- **A**: 프로젝트의 차별점인 "공정 물리를 모델 제약으로 주입했다"는 서사의 신뢰도를 만든다.
+- **B**: 기존 "센서 아키텍처" 역할에 **MySQL 스키마 설계와 배포 인프라**를 추가한다.
+  SQL DDL 작성과 AWS 배포 가이드는 전기정보공학 전공의 시스템 설계 역량과 일치한다.
 
-- **C(데이터·모델)** 와 **D(설명·최적화)** 는 `ModelBundle` 하나로만 연결된다.
-  D는 C의 학습을 기다릴 필요 없이 `tests/test_optimize.py` 의 가짜 점수 함수로 개발을 시작한다.
-- **E(UI·통합)** 는 `app/components/mock_backend.py` 덕분에 킥오프 직후부터 화면을 만든다.
-  C·D의 산출물이 없어도 UI가 완성되고, 실물이 준비되면 자동으로 전환된다.
+### AI/SW 3명 분업
+
+- **C(데이터·모델·ML서비스)**: ML 파이프라인 + `api/services/ml_service.py`. 모델을 학습하고, API에서 로드할 수 있게 서비스 레이어를 제공한다.
+- **D(API 라우터·설명·최적화)**: 기존 SHAP/최적화 로직을 FastAPI 엔드포인트로 노출한다. C의 학습을 기다릴 필요 없이 `fake_score`로 개발 시작.
+- **E(프론트엔드·통합)**: 정적 프론트엔드 + `api/main.py` 앱 초기화. mock 응답으로 킥오프 직후부터 화면을 만든다.
 
 ---
 
@@ -46,158 +52,223 @@
 
 **규칙: 자기 소유가 아닌 파일은 고치지 않는다.** 고쳐야 하면 소유자에게 말한다.
 
+---
+
 ### A — 공정물리 · 데이터 검수
 
 | 소유 파일 | 내용 |
 |---|---|
 | `configs/data_gen.yaml` | 변수별 기여 가중치, 상호작용 계수, 샘플링 설정 |
 | `docs/PHYSICS_RATIONALE.md` | 변수 13개의 물리적 근거 (발표 Q&A 원본) |
-| `notebooks/04_physics_review_A.ipynb` | 기여 곡선 시각화 검수 |
+| `docs/DATA_CARD.md` | 합성 데이터 명세 카드 |
 
 **완료 정의 (DoD)**
-- [ ] 13개 변수 각각에 대해 "방향(+/-)·근거 1문장·출처"가 `PHYSICS_RATIONALE.md` 에 적혀 있다.
-- [ ] `schema.py` 의 `monotone` 값 8개가 물리적으로 타당함을 A가 직접 확인하고 서명(문서에 이름 기재)했다.
-- [ ] 상호작용 3개 각각에 대해 "왜 이 두 변수가 곱해지는가"를 한 문단으로 설명할 수 있다.
-- [ ] 생성된 데이터의 변수별 기여 곡선을 눈으로 보고 "물리적으로 말이 된다"고 승인했다.
-- [ ] **가장 중요**: 심사위원이 "이 데이터는 당신들이 만든 규칙 아닙니까"라고 물었을 때의 답변을 준비했다.
+- [ ] 13개 변수 각각에 대해 "방향(+/-)·근거 1문장·출처"가 `PHYSICS_RATIONALE.md`에 적혀 있다
+- [ ] `schema.py`의 `monotone` 값 8개가 물리적으로 타당함을 A가 확인하고 서명했다
+- [ ] 상호작용 3개 각각에 대해 "왜 이 두 변수가 곱해지는가"를 한 문단으로 설명할 수 있다
+- [ ] 생성된 데이터의 변수별 기여 곡선을 보고 "물리적으로 말이 된다"고 승인했다
+- [ ] "이 데이터는 당신들이 만든 규칙 아닙니까" 질문의 답변을 준비했다
 
 **인터페이스 접점**
-- → C: `configs/data_gen.yaml` 을 넘긴다. C는 이 파일을 **읽기만** 한다.
-- → B: 단조 제약 방향을 함께 확정한다.
-- ← C: 생성 결과 검수 리포트(`artifacts/metrics/data_generation.json`)를 받아 판정한다.
+- → C: `configs/data_gen.yaml`을 넘긴다. C는 읽기만 한다.
+- → B: 단조 제약 방향 공동 확정.
+- ← C: 생성 결과 검수 리포트를 받아 판정한다.
 
-**백업 담당**: C (A가 막히면 C가 계수를 임시로 채우고, A는 검수만 한다)
+**즉시 착수 태스크**: `configs/data_gen.yaml` 가중치 조정 + `PHYSICS_RATIONALE.md` 작성 시작
 
 ---
 
-### B — 계측 · IoT 아키텍처 · Q&A 방어
+### B — DB · 인프라 · Q&A 방어
 
 | 소유 파일 | 내용 |
 |---|---|
-| `docs/ARCHITECTURE.md` | 센서 → 수집 → 추론 → 알림 데이터 흐름, AWS 배치안 |
+| `scripts/init_db.sql` | MySQL 데이터베이스·테이블 생성 DDL |
+| `api/db/connection.py` | MySQL 연결 풀 관리 |
+| `api/db/queries.py` | 예측 저장, 알림 저장, 이력 조회 SQL |
+| `scripts/deploy.sh` | S3 업로드 + EC2 배포 스크립트 |
+| `docs/ARCHITECTURE.md` | 3-Tier 아키텍처 흐름도, AWS 배치안 |
 | `docs/QA_DEFENSE.md` | 예상 질문 20개와 답변 |
-| `src/yeda/secom/pipeline.py` | SECOM 일반화 검증 (**우선순위 낮음**) |
-| `scripts/download_secom.py` | SECOM 다운로드 |
 
 **완료 정의 (DoD)**
-- [ ] `ARCHITECTURE.md` 에 실제 설비에서 13개 변수를 **어떤 센서/인터페이스로 취득하는지** 적혀 있다.
-      (예: 진공압은 설비 PLC 태그, UV 시간은 레시피 파라미터)
-- [ ] 현재 데모(합성 데이터)와 실제 배포(설비 연동) 사이의 **간극이 무엇인지** 명시되어 있다.
-      숨기지 않고 적는 것이 방어에 유리하다.
-- [ ] `QA_DEFENSE.md` 에 최소 15개 질문과 답변이 있고, 그중 5개는 **데이터 신뢰성** 관련이다.
-- [ ] 알림 메일 문구를 실무자 관점에서 검수했다 (`src/yeda/alerts/email.py` 의 본문).
-- [ ] SECOM 은 **M4까지 메인 데모가 완성된 경우에만** 착수한다. 아니면 버린다.
+- [ ] `scripts/init_db.sql` 실행 시 `yeda` DB + `predictions`, `alerts` 테이블 생성
+- [ ] `api/db/connection.py`가 `.env`의 DB 접속 정보로 연결 풀을 생성한다
+- [ ] `api/db/queries.py`에 `save_prediction()`, `save_alert()`, `get_history()` 구현
+- [ ] `ARCHITECTURE.md`에 3-Tier 다이어그램, 각 계층 역할, 통신 방식이 적혀 있다
+- [ ] `QA_DEFENSE.md`에 최소 20개 질문·답변 (5개는 "왜 3-Tier인가" 관련)
+- [ ] `scripts/deploy.sh`에 S3 sync + EC2 서비스 재시작 명령이 있다
+- [ ] DB 비밀번호가 코드에 하드코딩되지 않고 `.env`에서만 읽힌다
 
 **인터페이스 접점**
+- → D: `api/db/queries.py`의 함수를 D가 라우터에서 호출한다.
+- → E: 배포 스크립트를 E가 `Makefile`에 연결한다.
 - → A: 단조 제약 방향 공동 확정.
-- → E: 알림 메일 문구 검수 결과를 전달 (E가 코드에 반영).
 - → 전원: 발표 30분 전 Q&A 리허설을 주도한다.
 
-**백업 담당**: A (도메인 질문), E (SECOM 코드)
+**즉시 착수 태스크**: `scripts/init_db.sql` 작성 + `api/db/connection.py` 구현 + `ARCHITECTURE.md` 3-Tier 버전 작성
 
 ---
 
-### C — 데이터 · 모델
+### C — 데이터 · 모델 · ML 서비스
 
 | 소유 파일 | 내용 |
 |---|---|
 | `src/yeda/data/generator.py` | 합성 데이터 생성기 |
-| `src/yeda/data/physics.py` | 잠재 점수 함수 (계수는 A의 YAML에서) |
+| `src/yeda/data/physics.py` | 잠재 점수 함수 |
 | `src/yeda/data/preprocess.py` | 결측 처리, 홀드아웃 분리 |
 | `src/yeda/models/*.py` | 학습, 평가, 레지스트리 |
+| `api/services/ml_service.py` | 모델 로드·예측·SHAP 배경 데이터 제공 |
 | `configs/model.yaml` | 모델 하이퍼파라미터 |
 | `scripts/make_data.py`, `scripts/train.py` | CLI |
 | `tests/test_generator.py` | 생성기 회귀 테스트 |
 
 **완료 정의 (DoD)**
-- [ ] `make data` 가 경고 없이 통과한다 (성공률 65~80%, 베이즈 정확도 0.82~0.90).
-- [ ] `make train` 이 **4종 비교표**를 `artifacts/metrics/model_comparison.csv` 로 출력한다.
-      (LogReg / RF / LightGBM / LightGBM+단조제약)
-- [ ] 홀드아웃 정확도가 **80% 초중반**이다. 95%를 넘으면 생성기를 의심하고 즉시 A에게 보고한다.
-- [ ] 신뢰도 곡선(`calibration_curve.csv`)이 생성되고 ECE 값을 말할 수 있다.
-- [ ] `pytest tests/test_generator.py` 전부 통과 — 특히 `test_label_is_not_deterministic`.
-- [ ] 단조 제약 모델이 제약 없는 모델보다 **나쁘지 않다**는 것을 수치로 보인다.
-      (나쁘면 제약 방향이 틀린 것이므로 A와 재검토)
+- [ ] `make data`가 경고 없이 통과 (성공률 65~80%, 베이즈 정확도 0.82~0.90)
+- [ ] `make train`이 4종 비교표를 `artifacts/metrics/model_comparison.csv`로 출력
+- [ ] 홀드아웃 정확도 80% 초중반 (95%+ 시 생성기 재점검)
+- [ ] `api/services/ml_service.py`가 모델 로드 + `predict()` + `get_shap_background()` 제공
+- [ ] 모델이 없으면 mock 모드 폴백 (기존 로직 유지)
+- [ ] `pytest tests/test_generator.py` 전부 통과
 
 **인터페이스 접점**
-- ← A: `configs/data_gen.yaml` 을 받아 그대로 사용. **수정하지 않는다.**
-- → D: `ModelBundle` (`artifacts/models/primary_model.joblib`). 이것만 넘기면 D는 독립적으로 일한다.
-- → E: 성능 지표 dict (`bundle.metrics`).
+- ← A: `configs/data_gen.yaml`을 받아 그대로 사용
+- → D: `api/services/ml_service.py`의 함수를 D가 라우터에서 호출
+- → E: 모델 상태 (`is_loaded`, `is_mock`) 제공
 
-**백업 담당**: D
+**즉시 착수 태스크**: `make data` → `make train` 실행 + `api/services/ml_service.py` 뼈대 작성
 
 ---
 
-### D — 설명 · 최적화
+### D — API 라우터 · 설명 · 최적화
 
 | 소유 파일 | 내용 |
 |---|---|
+| `api/routers/predict.py` | `/api/predict`, `/api/explain` 엔드포인트 |
+| `api/routers/optimize.py` | `/api/optimize` 엔드포인트 |
+| `api/routers/alert.py` | `/api/alert` 엔드포인트 |
+| `api/routers/history.py` | `/api/history`, `/api/presets` 엔드포인트 |
+| `api/models/request.py` | Pydantic 요청 스키마 |
+| `api/models/response.py` | Pydantic 응답 스키마 |
 | `src/yeda/explain/shap_explainer.py` | SHAP 기여도 분해 |
 | `src/yeda/optimize/search.py` | 조건 탐색 및 가이드 생성 |
 | `configs/optimize.yaml` | 탐색 제약 |
 | `tests/test_optimize.py` | 최적화 계약 테스트 |
-| `notebooks/03_shap_check_D.ipynb` | SHAP 검증 |
+| `tests/test_api.py` | API 엔드포인트 테스트 |
 
 **완료 정의 (DoD)**
-- [ ] SHAP 기여도가 **확률 %p 단위**로 나온다 (`model_output="probability"` 확인).
-- [ ] 검증: `기준값 + 기여도 합 == 예측 확률` 이 소수 4자리까지 일치한다.
-- [ ] 워터폴 표(`waterfall_frame`)가 Streamlit에서 렌더링된다.
-- [ ] 최적화가 **고정 변수를 절대 건드리지 않는다** (`test_fixed_features_never_change` 통과).
-- [ ] 제안값이 물리 범위 + 설비 분해능을 지킨다 (37.8213N 같은 값 금지).
-- [ ] 개선 가이드가 "무엇을 얼마로 → 몇 %p" 형태의 완성된 한국어 문장으로 나온다.
-- [ ] **가장 중요**: `configs/data_gen.yaml` 의 어떤 숫자도 참조하지 않는다
-      (`test_no_generator_leak` 통과).
+- [ ] `POST /api/predict` — 13개 피처 입력 → 확률 + risk_level 반환
+- [ ] `POST /api/explain` — SHAP 기여도 JSON 반환 (기여도 합 = 예측값, 소수 4자리 일치)
+- [ ] `POST /api/optimize` — 고정 변수를 건드리지 않는 최적화 제안 반환
+- [ ] `POST /api/alert` — dry-run 본문 반환
+- [ ] `GET /api/history` — MySQL에서 이력 조회 (B의 `queries.py` 호출)
+- [ ] `GET /api/presets` — `configs/app.yaml`의 프리셋 목록 반환
+- [ ] `GET /api/health` — 모델 로드 상태 확인
+- [ ] 모든 엔드포인트에 적절한 에러 처리 및 HTTP 상태 코드
+- [ ] `pytest tests/test_api.py` 통과
 
 **인터페이스 접점**
-- ← C: `ModelBundle` 하나만 받는다. C가 늦으면 `tests/test_optimize.py` 의 `fake_score` 로 개발을 계속한다.
-- → E: `explain_frame()` / `recommend()` 두 함수만 노출. E는 내부 구현을 몰라도 된다.
+- ← C: `api/services/ml_service.py`의 함수를 호출
+- ← B: `api/db/queries.py`의 함수를 호출
+- → E: 라우터를 `api/main.py`에 등록 (E가 import)
+- → E: API 응답 형식을 프론트엔드에서 사용
 
-**백업 담당**: C
+**즉시 착수 태스크**: `api/models/request.py` + `api/models/response.py` 정의 → `api/routers/predict.py` 뼈대 (fake_score로 개발)
 
 ---
 
-### E — UI · 통합 · 데모
+### E — 프론트엔드 · 통합 · 데모
 
 | 소유 파일 | 내용 |
 |---|---|
-| `app/streamlit_app.py` | 메인 화면 |
-| `app/components/backend.py` | 실물/mock 어댑터 |
-| `app/components/mock_backend.py` | Mock stub |
+| `frontend/index.html` | 메인 페이지 |
+| `frontend/js/*.js` | API 호출, 탭 전환, 렌더링 |
+| `frontend/css/*.css` | 스타일 |
+| `api/main.py` | FastAPI 앱 엔트리포인트 (CORS, 라우터 등록) |
 | `src/yeda/alerts/email.py` | 이메일 알림 |
 | `src/yeda/schema.py` | **공용 계약** (변경 시 전원 공지) |
 | `src/yeda/io_utils.py`, `src/yeda/text_utils.py` | 공용 유틸 |
 | `configs/app.yaml` | UI · 알림 설정 |
+| `.env.example` | 환경변수 템플릿 |
 | `Makefile`, `scripts/run_demo.sh` | 실행 편의 |
+| `requirements.txt` | 의존성 (변경 시 전원 공지) |
 
 **완료 정의 (DoD)**
-- [ ] 새 노트북에서 `make setup && make demo` 두 줄로 화면이 뜬다.
-- [ ] 모델이 없어도 mock 모드로 뜨고, **mock 배지가 화면에 크게 보인다.**
-- [ ] 탭 4개(예측/원인/가이드/알림)가 모두 동작한다.
-- [ ] 어느 탭에서 예외가 나도 **앱 전체가 죽지 않는다** (탭별 try/except 확인).
-- [ ] 데모 프리셋 3개가 버튼 한 번으로 재현된다. 발표 중 슬라이더를 손으로 맞추지 않는다.
-- [ ] 알림이 dry-run 으로 본문을 보여준다. 실제 발송은 본 시연에서만 켠다.
-- [ ] **마지막 3시간**: 기능 추가를 중단하고 리허설·안정화만 한다.
+- [ ] `make api` → uvicorn 서버가 포트 8000에서 뜬다
+- [ ] `make frontend` → 프론트엔드가 로컬에서 서빙된다
+- [ ] 프론트엔드 4개 탭(예측/원인/가이드/알림)이 API를 호출하여 동작한다
+- [ ] 백엔드가 죽어도 프론트엔드 페이지가 로드된다 (에러 메시지 표시)
+- [ ] 데모 프리셋 버튼으로 원클릭 입력 가능
+- [ ] `api/main.py`에 CORS 설정으로 S3 도메인 허용
+- [ ] `.env.example`에 DB 접속 정보(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME) 추가
+- [ ] `requirements.txt`에 `fastapi`, `uvicorn[standard]`, `pymysql`, `sqlalchemy` 추가
+- [ ] **마지막 3시간**: 기능 추가 중단, 리허설·안정화만
 
 **인터페이스 접점**
-- ← C, D: `backend.py` 를 통해서만 호출. 실물/mock 전환은 E가 관리.
-- → 전원: `schema.py` 변경은 E가 머지하고 전원에게 공지한다.
+- ← D: `api/routers/`를 `api/main.py`에서 import·등록
+- ← B: 배포 스크립트를 Makefile에 연결
+- → 전원: `schema.py`, `requirements.txt` 변경은 E가 머지하고 전원 공지
 
-**백업 담당**: D
+**즉시 착수 태스크**: `api/main.py` 초기화 (CORS + health 엔드포인트) + `frontend/` 디렉토리 구조 생성 + Makefile 업데이트
+
+---
+
+## 킥오프 즉시 병렬 착수 맵
+
+```
+시간 0h                                                              1h
+ │                                                                    │
+ A ──── data_gen.yaml 조정 + PHYSICS_RATIONALE.md 작성 ──────────────▶
+ B ──── init_db.sql + api/db/ 구현 + ARCHITECTURE.md 3-Tier ─────────▶
+ C ──── make data → make train + api/services/ml_service.py ─────────▶
+ D ──── api/models/ 스키마 + api/routers/ 뼈대 (fake_score) ─────────▶
+ E ──── api/main.py + frontend/ 구조 + Makefile 업데이트 ────────────▶
+ │                                                                    │
+ ╰─── 전원: schema.py 확정, .env.example 확인, 브랜치 생성 ───────────╯
+```
+
+**의존 관계 (화살표 = "이게 있어야 다음 단계 가능")**:
+```
+A → (data_gen.yaml) → C → (ml_service) → D → (라우터) → E → (통합)
+B → (db/queries.py) → D → (history 라우터)
+E → (main.py + CORS) → D → (라우터 등록)
+```
+
+**핵심**: A·B·C·D·E 모두 **첫 1시간부터 독립 작업 가능**하다.
+의존성이 생기는 시점은 M2(4h) 이후 통합 단계부터다.
 
 ---
 
 ## 공용 파일 변경 규칙
 
-아래 파일은 **여러 명이 의존**하므로 킥오프 1시간 안에 확정하고 그 뒤엔 거의 건드리지 않는다.
-
 | 파일 | 확정 시점 | 변경 절차 |
 |---|---|---|
-| `src/yeda/schema.py` | M0 (킥오프 +1h) | E에게 요청 → E가 수정·공지 → 전원 `git pull` |
-| `configs/data_gen.yaml` | M1 | A만 수정. 변경 시 C에게 알림 (재생성 필요) |
+| `src/yeda/schema.py` | M0 (킥오프 +1h) | E에게 요청 → E가 수정·공지 → 전원 pull |
+| `configs/data_gen.yaml` | M1 | A만 수정. 변경 시 C에게 알림 |
 | `requirements.txt` | M0 | E만 수정. 버전 변경 시 전원 공지 |
+| `api/models/request.py` | M0 | D가 확정. 변경 시 E에게 알림 (프론트엔드 영향) |
+| `.env.example` | M0 | E가 관리. 새 변수 추가 시 전원 공지 |
 
-> **경험칙**: 스키마를 M2 이후에 바꾸면 그 시점부터 통합 비용이 급격히 커진다.
-> 애매하면 M0에 넉넉하게 정의하고 안 쓰는 편이 낫다.
+---
+
+## 브랜치 전략
+
+| 브랜치 | 소유자 | 목적 |
+|---|---|---|
+| `feat/data-C` | C | 데이터 생성 + 모델 학습 |
+| `feat/api-D` | D | FastAPI 라우터 + Pydantic 스키마 |
+| `feat/frontend-E` | E | 프론트엔드 + main.py |
+| `feat/db-B` | B | MySQL 스키마 + DB 연동 |
+| `docs/physics-A` | A | 물리 근거 문서 |
+| `docs/arch-B` | B | 아키텍처 + QA 문서 |
+
+---
+
+## M0에서 합의해야 하는 것 (30분 안에)
+
+1. **API 엔드포인트 스펙** — D와 E가 같은 JSON 형식을 보고 일한다
+2. **MySQL 테이블 스키마** — B가 제안, D가 확인 (쿼리 호출 주체)
+3. **`.env` 변수 이름** — DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+4. **CORS 허용 도메인** — 로컬 개발 시 `http://localhost:*`, 배포 시 S3 URL
+5. **프리셋 데이터 소스** — `configs/app.yaml`의 기존 프리셋을 API가 그대로 사용
 
 ---
 
@@ -205,12 +276,35 @@
 
 | 리스크 | 징후 | 대응 | 담당 |
 |---|---|---|---|
-| 생성기 정확도가 다시 95%+ | `make data` 경고 출력 | `latent.scale` 하향 | A → C |
-| 단조 제약 모델이 더 나쁨 | 비교표에서 역전 | 제약 방향 재검토, 최악엔 제약 해제 후 서사 축소 | A + C |
-| SHAP 이 너무 느림 | 워터폴 5초+ | 배경 표본 200 → 50 축소 | D |
-| 최적화가 비현실적 제안 | 제안값이 범위 끝에 몰림 | `max_relative_move` 하향 | D |
-| SMTP 차단 (해커톤장 네트워크) | 발송 실패 | dry-run 유지, 본문만 시연 | E |
-| 발표 직전 앱이 안 뜸 | — | mock 모드로 전환해 화면은 반드시 띄움 | E |
-| 팀원 1명 이탈/과부하 | — | 위 백업 담당자가 DoD 축소판만 수행 | 팀장 |
+| MySQL 연결 실패 | API 시작 시 에러 | SQLite 폴백 모드 추가 | B → D |
+| 생성기 정확도 95%+ | `make data` 경고 | `latent.scale` 하향 | A → C |
+| API 응답 느림 (SHAP) | explain 5초+ | 배경 표본 200 → 50 축소 | D |
+| S3 배포 권한 없음 | aws cli 에러 | 로컬 http.server로 데모 | E |
+| 프론트-백 JSON 불일치 | 화면에 데이터 안 뜸 | request/response 스키마 재확인 | D + E |
+| 팀원 1명 이탈 | — | 아래 백업 담당자가 DoD 축소판 수행 | 팀장 |
 
-**전원 공통 규칙**: 막히면 **30분 안에** 팀에 알린다. 혼자 붙들고 있는 시간이 24시간짜리 일정에서 가장 비싸다.
+**백업 담당**: A↔B (도메인·인프라 교차), C↔D (ML·API 교차), E는 D가 백업
+
+---
+
+## 시간 부족 시 범위 축소 순서
+
+앞에 있을수록 먼저 버린다:
+
+1. ~~SECOM 일반화 검증~~
+2. ~~이메일 실제 발송~~ (dry-run 본문 표시로 충분)
+3. ~~Optuna 최적화~~ (좌표 하강으로 충분)
+4. ~~예측 이력 UI~~ (MySQL 저장은 되되 프론트엔드 탭 생략)
+5. ~~프론트엔드 디자인 고도화~~ (기본 기능만 동작)
+6. ~~S3 실배포~~ (로컬 static 서빙으로 3-Tier 시연)
+
+**절대 버리지 않는 것**:
+- 3-Tier 분리 자체 (프론트/백엔드/DB 분리 동작)
+- 합성 데이터 명시
+- 단조 제약 서사
+- `make api` + 프론트엔드로 예측이 뜨는 것
+
+---
+
+> **전원 공통 규칙**: 막히면 **30분 안에** 팀에 알린다.
+> 혼자 붙들고 있는 시간이 24시간짜리 일정에서 가장 비싸다.

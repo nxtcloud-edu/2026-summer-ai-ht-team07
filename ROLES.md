@@ -198,11 +198,13 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 | `requirements.txt` | 의존성 (변경 시 전원 공지) |
 
 **완료 정의 (DoD)**
-- [ ] `make api` → uvicorn 서버가 포트 8000에서 뜬다
-- [ ] `make frontend` → 프론트엔드가 로컬에서 서빙된다
-- [ ] 프론트엔드 4개 탭(예측/원인/가이드/알림)이 API를 호출하여 동작한다
-- [ ] 백엔드가 죽어도 프론트엔드 페이지가 로드된다 (에러 메시지 표시)
-- [ ] 데모 프리셋 버튼으로 원클릭 입력 가능
+- [x] `make api` → uvicorn 서버가 포트 8000에서 뜬다
+- [x] `make frontend` → 프론트엔드가 로컬에서 서빙된다 (포트 3000)
+- [x] 프론트엔드 4개 탭(예측/원인/가이드/알림)이 API를 호출하여 동작한다
+  - ✅ predict.js, explain.js, optimize.js, alert.js, history.js, dashboard.js 구현
+- [x] 백엔드가 죽어도 프론트엔드 페이지가 로드된다 (에러 메시지 표시)
+  - ✅ api.js에 fetch 에러 핸들링 + 토스트 알림 구현
+- [x] 데모 프리셋 버튼으로 원클릭 입력 가능
 - [x] `api/main.py`에 CORS 설정으로 S3 도메인 허용
 - [x] `.env.example`에 DB 접속 정보(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME) 추가
 - [x] `requirements.txt`에 `fastapi`, `uvicorn[standard]`, `httpx` 추가

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.models.request import AlertRequest
 from api.models.response import AlertResponse
+from api.routers.history import save_alert_record
 from api.services.ml_service import MLService, get_ml_service
 
 router = APIRouter(prefix="/api", tags=["alert"])
@@ -26,6 +27,16 @@ def alert(request: AlertRequest, service: MLService = Depends(get_ml_service)):
             probability=request.probability,
             risk_features=request.risk_features,
             recommendations=request.recommendations,
+        )
+        # 알림 이력 DB 저장
+        save_alert_record(
+            prediction_id=None,
+            subject=result.get("subject") or "",
+            body=result.get("body") or "",
+            recipients=result.get("recipients", []),
+            sent=result.get("sent", False),
+            dry_run=result.get("dry_run", True),
+            error=result.get("error"),
         )
         return AlertResponse(**result)
     except Exception as exc:

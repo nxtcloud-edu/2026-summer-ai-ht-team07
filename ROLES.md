@@ -90,13 +90,14 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 | `docs/QA_DEFENSE.md` | 예상 질문 20개와 답변 |
 
 **완료 정의 (DoD)**
-- [ ] `scripts/init_db.sql` 실행 시 `yeda` DB + `predictions`, `alerts` 테이블 생성
-- [ ] `api/db/connection.py`가 `.env`의 DB 접속 정보로 연결 풀을 생성한다
-- [ ] `api/db/queries.py`에 `save_prediction()`, `save_alert()`, `get_history()` 구현
-- [ ] `ARCHITECTURE.md`에 3-Tier 다이어그램, 각 계층 역할, 통신 방식이 적혀 있다
+- [x] `scripts/init_db.sql` 실행 시 `yeda` DB + `predictions`, `alerts` 테이블 생성
+- [x] `api/db/connection.py`가 `.env`의 DB 접속 정보로 연결 풀을 생성한다
+- [x] `api/db/queries.py`에 `save_prediction()`, `save_alert()`, `get_history()` 구현
+- [x] `ARCHITECTURE.md`에 3-Tier 다이어그램, 각 계층 역할, 통신 방식이 적혀 있다
 - [ ] `QA_DEFENSE.md`에 최소 20개 질문·답변 (5개는 "왜 3-Tier인가" 관련)
-- [ ] `scripts/deploy.sh`에 S3 sync + EC2 서비스 재시작 명령이 있다
-- [ ] DB 비밀번호가 코드에 하드코딩되지 않고 `.env`에서만 읽힌다
+  - 현재 16개 중 Q5, Q9, Q17~Q20이 TODO 상태
+- [x] `scripts/deploy.sh`에 S3 sync + EC2 서비스 재시작 명령이 있다
+- [x] DB 비밀번호가 코드에 하드코딩되지 않고 `.env`에서만 읽힌다
 
 **인터페이스 접점**
 - → D: `api/db/queries.py`의 함수를 D가 라우터에서 호출한다.
@@ -125,12 +126,14 @@ E 한 명에게 3개 계층을 모두 맡기면 병목이 된다.
 - [x] `make data`가 경고 없이 통과 (성공률 65~80%, 베이즈 정확도 0.82~0.90)
   - ✅ 실측: 성공률 66.8%, 베이즈 정확도 0.872, 경고 0건
 - [x] `make train`이 4종 비교표를 `artifacts/metrics/model_comparison.csv`로 출력
-  - ✅ 4종: LogReg(0.803) / RF(0.829) / LightGBM(0.840) / LightGBM+단조(0.849)
+  - ✅ 4종: LogReg(0.809) / RF(0.832) / LightGBM(0.849) / LightGBM+단조(0.854)
 - [x] 홀드아웃 정확도 80% 초중반 (95%+ 시 생성기 재점검)
-  - ✅ 본선 모델 accuracy=0.849, PR-AUC=0.950
+  - ✅ 본선 모델 accuracy=0.854, PR-AUC=0.944, ECE=0.027
 - [x] `api/services/ml_service.py`가 모델 로드 + `predict()` + `get_shap_background()` 제공
+  - ✅ C가 `is_loaded` 프로퍼티, 모델 분석 모듈 추가 확장
 - [x] 모델이 없으면 mock 모드 폴백 (기존 로직 유지)
 - [x] `pytest tests/test_generator.py` 전부 통과
+  - ✅ + `test_ml_service_C.py`, `test_models_C.py`, `test_yield_experiment.py` 추가
 
 **인터페이스 접점**
 - ← A: `configs/data_gen.yaml`을 받아 그대로 사용

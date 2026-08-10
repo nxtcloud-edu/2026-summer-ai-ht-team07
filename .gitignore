@@ -23,9 +23,17 @@ artifacts/metrics/*
 artifacts/figures/*
 !artifacts/**/.gitkeep
 
-# 단, 발표에 쓸 최종 지표는 예외로 커밋한다 (git add -f).
+# 단, 발표에 쓸 최종 지표는 예외로 커밋한다.
 # 발표 당일 재학습이 실패해도 슬라이드 숫자는 남아 있어야 하기 때문이다.
 !artifacts/metrics/model_comparison.csv
+!artifacts/metrics/calibration_curve.csv
+!artifacts/metrics/yield_summary.csv
+!artifacts/metrics/permutation_ablation.csv
+!artifacts/metrics/feature_sweep_summary.csv
+!artifacts/metrics/yield_experiment_summary.csv
+!artifacts/metrics/yield_primary_presets.csv
+!artifacts/metrics/yield_preset_model_comparison.csv
+!artifacts/metrics/README.md
 
 # 기존 프로토타입 데이터 (결함 있음 — 참고용으로만 로컬 보관)
 *.xlsx

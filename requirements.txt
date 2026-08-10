@@ -31,6 +31,11 @@ scipy==1.17.1
 streamlit==1.61.1
 matplotlib==3.11.1
 
+# --- API (3-Tier 백엔드) ---
+fastapi==0.116.0
+uvicorn[standard]==0.34.3
+httpx==0.28.1
+
 # --- 테스트 ---
 pytest==9.1.1
 

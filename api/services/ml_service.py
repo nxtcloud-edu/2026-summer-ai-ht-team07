@@ -1,375 +1,425 @@
-"""Model loading and inference service for API routers.
+"""ML 서비스 레이어 — FastAPI 용 모델 로드·예측·설명·최적화 파사드.
 
-This module is the boundary between HTTP handlers and the training artifact.
-It preserves the saved :class:`yeda.models.registry.ModelBundle` contract
-(feature order, training-set imputation values and success probability) and
-keeps the API process available in the expected pre-training state by falling
-back to the existing UI mock implementation.
+기존 ``app/components/backend.py`` 의 ``Backend`` 패턴을 그대로 따른다:
+- 모델이 있으면 실물, 없으면 mock 모드로 폴백 (절대 크래시하지 않음)
+- SHAP explainer 는 지연 초기화 (첫 explain 호출 시 생성)
 
-``get_shap_background`` returns model-ready rows only; importing and building
-SHAP explainers remains the explainability module's responsibility.
+소유자: D(API 라우터·설명·최적화) + C(ml_service 모델 로딩 부분).
 """
 
 from __future__ import annotations
 
-import os
 import sys
-from collections.abc import Mapping, Sequence
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import joblib
 import numpy as np
 import pandas as pd
 
+# src/ 를 import path 에 추가
+_ROOT = Path(__file__).resolve().parents[2]
+_SRC = _ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SRC_ROOT = PROJECT_ROOT / "src"
-for import_root in (PROJECT_ROOT, SRC_ROOT):
-    if str(import_root) not in sys.path:
-        # ``make`` exports PYTHONPATH=src, but direct uvicorn/test imports do
-        # not necessarily do so.  Joblib also needs ``yeda`` to be importable
-        # in order to unpickle ModelBundle.
-        sys.path.insert(0, str(import_root))
-
-from yeda.data.preprocess import apply_imputer  # noqa: E402
-from yeda.io_utils import load_config, resolve  # noqa: E402
-from yeda.models.registry import ModelBundle, load_bundle  # noqa: E402
-from yeda.schema import FEATURE_NAMES, SPEC_BY_NAME  # noqa: E402
-
-
-DEFAULT_SHAP_BACKGROUND = PROJECT_ROOT / "artifacts" / "data" / "shap_background.csv"
-
-
-def _resolve_path(value: str | os.PathLike[str]) -> Path:
-    """Resolve environment/argument paths relative to the repository root."""
-    return resolve(Path(value).expanduser())
-
-
-def _schema_midpoints() -> dict[str, float]:
-    """Safe imputation defaults used only before a model is available."""
-    return {
-        name: (float(SPEC_BY_NAME[name].low) + float(SPEC_BY_NAME[name].high)) / 2.0
-        for name in FEATURE_NAMES
-    }
+from yeda.alerts.email import notify, risk_level  # noqa: E402
+from yeda.io_utils import load_config  # noqa: E402
+from yeda.optimize.search import format_recommendations, recommend  # noqa: E402
+from yeda.schema import FEATURE_NAMES  # noqa: E402
 
 
 class MLService:
-    """Load a saved ModelBundle and expose prediction-oriented operations."""
+    """예측·설명·최적화를 한 곳에서 제공하는 서비스 싱글톤.
 
-    def __init__(
-        self,
-        model_path: str | os.PathLike[str] | None = None,
-        background_path: str | os.PathLike[str] | None = None,
-    ) -> None:
-        configured_model = model_path or os.getenv("YEDA_MODEL_PATH")
-        self.model_path: Path | None = (
-            _resolve_path(configured_model) if configured_model else None
-        )
+    Attributes:
+        is_mock: mock 모드 여부.
+        model_name: 로드된 모델 이름.
+        status: 사람이 읽는 상태 문자열.
+    """
 
-        configured_background = (
-            background_path
-            or os.getenv("YEDA_SHAP_BACKGROUND_PATH")
-            or os.getenv("YEDA_DATA_PATH")
-        )
-        self.background_path: Path | None = (
-            _resolve_path(configured_background) if configured_background else None
-        )
+    def __init__(self) -> None:
+        self.is_mock: bool = True
+        self.model_name: str | None = None
+        self.status: str = ""
+        self._bundle: Any = None
+        self._explainer: Any = None
+        self._background: pd.DataFrame | None = None
+        self._initialize()
 
-        self.bundle: ModelBundle | None = None
-        self.feature_names: list[str] = list(FEATURE_NAMES)
-        self.imputer_values: dict[str, float] = _schema_midpoints()
-        self.model_name = "mock"
-        self.is_loaded = False
-        self.is_mock = True
-        self.load_error: str | None = None
-        self.load_model()
-
-    def _configured_model_path(self) -> Path:
-        """Return the canonical configured model path for status reporting."""
-        if self.model_path is not None:
-            return self.model_path
-        config = load_config("model")
-        return resolve(config["output"]["model_path"])
-
-    @staticmethod
-    def _validate_bundle(bundle: Any) -> ModelBundle:
-        required = ("model", "name", "feature_names", "imputer_values", "predict_proba")
-        missing = [name for name in required if not hasattr(bundle, name)]
-        if missing:
-            raise TypeError(f"invalid ModelBundle; missing: {', '.join(missing)}")
-
-        names = list(bundle.feature_names)
-        if not names or len(names) != len(set(names)):
-            raise ValueError("ModelBundle.feature_names must be non-empty and unique")
-        if set(names) != set(FEATURE_NAMES):
-            raise ValueError("ModelBundle features do not match schema.FEATURE_NAMES")
-        if not callable(bundle.predict_proba):
-            raise TypeError("ModelBundle.predict_proba is not callable")
-        return bundle
-
-    def load_model(self, model_path: str | os.PathLike[str] | None = None) -> bool:
-        """(Re)load the real model, enabling mock mode on any load failure.
-
-        Returning ``False`` is intentional for the normal pre-training state;
-        routers can stay online and expose ``load_error`` through a health
-        endpoint instead of failing during module import.
-        """
-        if model_path is not None:
-            self.model_path = _resolve_path(model_path)
-
-        self.bundle = None
-        self.feature_names = list(FEATURE_NAMES)
-        self.imputer_values = _schema_midpoints()
-        self.model_name = "mock"
-        self.is_loaded = False
-        self.is_mock = True
-        self.load_error = None
-
+    def _initialize(self) -> None:
+        """모델 로드를 시도하고, 실패하면 mock 모드로 진입한다."""
         try:
-            if self.model_path is None:
-                candidate = self._configured_model_path()
-                bundle = load_bundle()
-            else:
-                candidate = self.model_path
-                if not candidate.is_file():
-                    raise FileNotFoundError(f"model artifact not found: {candidate}")
-                bundle = joblib.load(candidate)
+            from yeda.models.registry import load_bundle
 
-            validated = self._validate_bundle(bundle)
-            self.model_path = candidate
-            self.bundle = validated
-            self.feature_names = list(validated.feature_names)
-            self.imputer_values = {
-                name: float(validated.imputer_values[name]) for name in self.feature_names
-            }
-            self.model_name = str(validated.name)
-            self.is_loaded = True
+            bundle = self._bundle = load_bundle()
             self.is_mock = False
-            return True
-        except Exception as exc:  # artifact absence/version mismatch must not stop the API
-            try:
-                self.model_path = self._configured_model_path()
-            except Exception:
-                pass
-            self.load_error = f"{type(exc).__name__}: {exc}"
-            return False
+            self.model_name = bundle.name
+            self.status = f"학습된 모델 로드 완료 ({bundle.name})"
+        except Exception as exc:  # noqa: BLE001
+            self.is_mock = True
+            self.model_name = None
+            self.status = f"모델 로드 실패 → mock 모드: {type(exc).__name__}"
 
-    def _to_frame(self, values: Any) -> pd.DataFrame:
-        """Normalize supported input shapes without trusting dict insertion order."""
+    # ---------------------------------------------------------------- 예측
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        """픽업 성공 확률 배열을 반환한다."""
+        if self.is_mock:
+            return self._mock_predict(X)
+        return self._bundle.predict_proba(X)
+
+    def predict_one(self, values: dict[str, float]) -> float:
+        """조건 dict 하나에 대한 성공 확률."""
+        frame = self._to_frame(values)
+        return float(self.predict_proba(frame)[0])
+
+    def _prediction_frame(self, values: Any) -> pd.DataFrame:
+        """단건 dict 또는 배치 DataFrame/list를 피처 순서에 맞춘다."""
         if isinstance(values, pd.DataFrame):
             frame = values.copy()
-        elif isinstance(values, pd.Series):
-            frame = values.to_frame().T
-        elif isinstance(values, Mapping):
-            frame = pd.DataFrame([dict(values)])
-        elif isinstance(values, np.ndarray):
-            array = values.reshape(1, -1) if values.ndim == 1 else values
-            if array.ndim != 2 or array.shape[1] != len(self.feature_names):
-                raise ValueError(
-                    f"array input must have {len(self.feature_names)} columns in model order"
-                )
-            frame = pd.DataFrame(array, columns=self.feature_names)
-        elif isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
-            if len(values) == 0:
-                raise ValueError("prediction input must contain at least one row")
-            if all(isinstance(row, Mapping) for row in values):
-                frame = pd.DataFrame([dict(row) for row in values])
-            else:
-                if len(values) != len(self.feature_names):
-                    raise ValueError(
-                        f"ordered input must contain {len(self.feature_names)} values"
-                    )
-                frame = pd.DataFrame([list(values)], columns=self.feature_names)
+        elif isinstance(values, dict):
+            frame = pd.DataFrame([values])
+        elif (
+            isinstance(values, (list, tuple))
+            and values
+            and all(isinstance(row, dict) for row in values)
+        ):
+            frame = pd.DataFrame(values)
         else:
-            raise TypeError("input must be a mapping, Series, DataFrame, or ordered sequence")
+            raise TypeError("입력은 dict, dict 목록 또는 DataFrame이어야 합니다.")
 
-        if frame.empty:
-            raise ValueError("prediction input must contain at least one row")
-
-        numeric = pd.DataFrame(index=frame.index)
-        for name in self.feature_names:
-            source = frame[name] if name in frame.columns else pd.Series(np.nan, index=frame.index)
-            numeric[name] = pd.to_numeric(source, errors="coerce")
-        return apply_imputer(numeric, self.imputer_values)
-
-    @staticmethod
-    def _validate_probabilities(values: Any, n_rows: int) -> np.ndarray:
-        probabilities = np.asarray(values, dtype=float).reshape(-1)
-        if len(probabilities) != n_rows:
-            raise ValueError(
-                f"predict_proba returned {len(probabilities)} values for {n_rows} rows"
-            )
-        if not np.all(np.isfinite(probabilities)):
-            raise ValueError("predict_proba returned a non-finite success probability")
-        return np.clip(probabilities, 0.0, 1.0)
-
-    def predict_proba(self, values: Any) -> np.ndarray:
-        """Return one pickup-success probability per input row (0..1)."""
-        frame = self._to_frame(values)
-        if self.is_mock:
-            # Keep the API fallback numerically identical to the Streamlit
-            # fallback rather than maintaining a second mock formula.
-            from app.components.mock_backend import predict_proba as mock_predict_proba
-
-            raw = mock_predict_proba(frame)
-        else:
-            assert self.bundle is not None
-            raw = self.bundle.predict_proba(frame[self.feature_names])
-        return self._validate_probabilities(raw, len(frame))
+        missing = [name for name in FEATURE_NAMES if name not in frame.columns]
+        if missing:
+            raise KeyError(f"피처 누락: {missing}")
+        return frame.loc[:, FEATURE_NAMES].astype(float)
 
     def predict(self, values: Any) -> float | list[float]:
-        """Return success probability; batches use a JSON-serializable list."""
-        probabilities = self.predict_proba(values)
+        """성공확률을 반환하며 배치는 JSON 직렬화 가능한 목록으로 반환한다."""
+        probabilities = self.predict_proba(self._prediction_frame(values))
         if len(probabilities) == 1:
             return float(probabilities[0])
         return probabilities.astype(float).tolist()
 
     def predict_yield(self, values: Any) -> float:
-        """Return predicted batch yield in percent.
-
-        Yield is the mean pickup-success probability multiplied by 100. A
-        single die follows the same definition, so its yield is simply that
-        die's success probability expressed as a percentage.
-        """
-        return float(np.mean(self.predict_proba(values)) * 100.0)
+        """배치 평균 픽업 성공확률을 예상 수율(%)로 반환한다."""
+        probabilities = self.predict_proba(self._prediction_frame(values))
+        return float(np.mean(probabilities) * 100.0)
 
     def predict_defect_rate(self, values: Any) -> float:
-        """Return predicted batch defect rate in percent (``100 - yield``)."""
+        """예상 불량률(%)을 ``100 - 예상 수율``로 반환한다."""
         return float(100.0 - self.predict_yield(values))
 
-    def _background_candidates(self) -> list[Path]:
-        candidates: list[Path] = []
-        if self.background_path is not None:
-            candidates.append(self.background_path)
-        candidates.append(DEFAULT_SHAP_BACKGROUND)
+    def get_risk_level(self, probability: float) -> str:
+        """확률 → 위험 등급."""
+        return risk_level(probability)
 
-        try:
-            candidates.append(resolve(load_config("data_gen")["output_path"]))
-        except Exception:
-            pass
+    # ---------------------------------------------------------------- 설명
 
-        unique: list[Path] = []
-        for candidate in candidates:
-            if candidate not in unique:
-                unique.append(candidate)
-        return unique
+    def explain(
+        self,
+        values: dict[str, float],
+        die_id: str | None = None,
+        top_k: int | None = None,
+    ) -> dict[str, Any]:
+        """SHAP 기여도 분해 결과를 반환한다.
 
-    def _read_background(self, path: Path, max_rows: int) -> pd.DataFrame | None:
-        if not path.is_file():
-            return None
-        try:
-            if path.suffix.lower() in {".parquet", ".pq"}:
-                raw = pd.read_parquet(path, columns=self.feature_names).head(max_rows)
-            else:
-                raw = pd.read_csv(
-                    path,
-                    usecols=lambda column: column in self.feature_names,
-                    nrows=max_rows,
-                )
-        except (OSError, ValueError, ImportError):
-            return None
-        if raw.empty or not any(name in raw.columns for name in self.feature_names):
-            return None
-        return self._to_frame(raw)
+        Returns:
+            {"base_value": float, "shap_values": list[dict], "disclaimer": str}
+        """
+        from yeda.explain.shap_explainer import DISCLAIMER
+
+        frame = self._to_frame(values)
+        ids = pd.Series([die_id or "input"])
+
+        if self.is_mock:
+            explanation = self._mock_explain(frame, ids, top_k)
+            base_value = 0.70
+        else:
+            from yeda.explain.shap_explainer import explain_frame
+
+            explainer_bundle = self._ensure_explainer()
+            explanation = explain_frame(explainer_bundle, frame, ids=ids, top_k=top_k)
+            base_value = explainer_bundle.base_value
+
+        shap_list = []
+        for _, row in explanation.iterrows():
+            shap_list.append(
+                {
+                    "feature": row["feature"],
+                    "shap_value_pp": float(row["shap_value_pp"]),
+                    "feature_value": float(row["feature_value"]),
+                    "direction": row["direction"],
+                }
+            )
+
+        return {
+            "base_value": base_value,
+            "shap_values": shap_list,
+            "disclaimer": DISCLAIMER,
+        }
 
     def get_shap_background(
         self,
         n_samples: int = 200,
         random_state: int = 0,
     ) -> pd.DataFrame:
-        """Return deterministic, imputed background rows in bundle feature order.
+        """결측 처리된 SHAP 배경 표본을 결정론적으로 반환한다."""
+        if isinstance(n_samples, bool) or not isinstance(n_samples, int):
+            raise ValueError("n_samples는 양의 정수여야 합니다.")
+        if n_samples <= 0:
+            raise ValueError("n_samples는 양의 정수여야 합니다.")
 
-        Discovery order is an explicit/env override, a preprocessed training
-        artifact when present, then ``configs/data_gen.yaml:output_path``.
-        If none exists, the bundle's training medians form a safe one-row
-        background without importing SHAP or the data-generation physics.
+        if self._background is None:
+            try:
+                from yeda.data.preprocess import make_split
+
+                self._background = make_split().X_train
+            except Exception:  # 데이터 생성 전에도 서비스는 동작해야 한다.
+                if self._bundle is not None:
+                    values = dict(self._bundle.imputer_values)
+                else:
+                    from yeda.schema import SPEC_BY_NAME
+
+                    values = {
+                        name: (SPEC_BY_NAME[name].low + SPEC_BY_NAME[name].high) / 2
+                        for name in FEATURE_NAMES
+                    }
+                self._background = pd.DataFrame([values], columns=FEATURE_NAMES)
+
+        background = self._background.loc[:, FEATURE_NAMES]
+        if len(background) > n_samples:
+            background = background.sample(
+                n=n_samples,
+                random_state=random_state,
+            )
+        return background.reset_index(drop=True)
+
+    def _ensure_explainer(self):
+        """SHAP explainer 를 지연 생성한다."""
+        if self._explainer is None:
+            from yeda.explain.shap_explainer import build_explainer
+
+            cfg = load_config("app")
+            size = int(cfg["app"]["shap_background_size"])
+            background = self.get_shap_background(size)
+            self._explainer = build_explainer(self._bundle, background, size)
+        return self._explainer
+
+    # ------------------------------------------------------------- 최적화
+
+    def optimize(self, values: dict[str, float]) -> dict[str, Any]:
+        """개선 가이드를 계산한다.
+
+        Returns:
+            OptimizationResult 를 dict 로 변환한 결과.
         """
-        if isinstance(n_samples, bool) or not isinstance(n_samples, int) or n_samples <= 0:
-            raise ValueError("n_samples must be a positive integer")
+        if self.is_mock:
+            return self._mock_optimize(values)
 
-        max_rows = max(n_samples, min(10_000, n_samples * 20))
-        for path in self._background_candidates():
-            background = self._read_background(path, max_rows=max_rows)
-            if background is None:
-                continue
-            if len(background) > n_samples:
-                background = background.sample(n=n_samples, random_state=random_state)
-            return background[self.feature_names].reset_index(drop=True)
+        result = recommend(self.predict_proba, values)
+        formatted = format_recommendations(result)
 
-        median_row = {name: self.imputer_values[name] for name in self.feature_names}
-        return pd.DataFrame([median_row], columns=self.feature_names)
+        recommendations = []
+        for _, row in result.recommendations.iterrows():
+            recommendations.append(
+                {
+                    "feature": row["feature"],
+                    "current_value": float(row["current_value"]),
+                    "suggested_value": float(row["suggested_value"]),
+                    "delta": float(row["delta"]),
+                    "unit": row["unit"],
+                    "expected_gain_pp": float(row["expected_gain_pp"]),
+                }
+            )
 
-    def status(self) -> dict[str, Any]:
-        """Return JSON-safe state for ``/api/health`` and the frontend badge."""
         return {
-            "is_loaded": self.is_loaded,
-            "is_mock": self.is_mock,
-            "model_name": self.model_name,
-            "model_path": str(self.model_path) if self.model_path is not None else None,
-            "load_error": self.load_error,
+            "baseline_prob": result.baseline_prob,
+            "optimized_prob": result.optimized_prob,
+            "gain_pp": result.gain_pp,
+            "recommendations": recommendations,
+            "formatted_text": formatted,
+            "n_evaluations": result.n_evaluations,
+        }
+
+    # ------------------------------------------------------------- 알림
+
+    def send_alert(
+        self,
+        die_id: str,
+        probability: float,
+        risk_features: list[dict] | None = None,
+        recommendations: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """알림을 트리거한다.
+
+        Returns:
+            AlertResponse 호환 dict.
+        """
+        cfg = load_config("app")
+        result = notify(die_id, probability, risk_features, recommendations, cfg)
+
+        if result is None:
+            return {
+                "subject": None,
+                "body": None,
+                "recipients": [],
+                "sent": False,
+                "dry_run": cfg["alerts"].get("dry_run", True),
+                "error": "알림 조건에 해당하지 않습니다 (등급/쿨다운).",
+            }
+
+        return {
+            "subject": result.subject,
+            "body": result.body,
+            "recipients": result.recipients,
+            "sent": result.sent,
+            "dry_run": cfg["alerts"].get("dry_run", True),
+            "error": result.error,
+        }
+
+    # ------------------------------------------------------------- 프리셋
+
+    def get_presets(self) -> list[dict[str, Any]]:
+        """configs/app.yaml 의 데모 프리셋 목록을 반환한다."""
+        cfg = load_config("app")
+        return cfg.get("demo_presets", [])
+
+    # ------------------------------------------------------------- 내부
+
+    def _to_frame(self, values: dict[str, float]) -> pd.DataFrame:
+        """조건 dict → 정렬된 DataFrame."""
+        return pd.DataFrame([{name: values[name] for name in FEATURE_NAMES}])
+
+    # ------------------------------------------------------------- Mock
+
+    def _mock_predict(self, X: pd.DataFrame) -> np.ndarray:
+        """mock 예측: 선형 조합 기반 시그모이드."""
+        uv = (X["uv_time"] - 3.0) / 4.0
+        pressure = (X["pin_pressure"] - 20.0) / 20.0
+        vacuum = (X["head_vacuum"] + 70.0) / 10.0
+        runtime = 1.0 - X["runtime_hours"] / 24.0
+        logit = -1.0 + 2.0 * uv + 1.5 * pressure + 1.0 * vacuum + 0.5 * runtime
+        prob = 1.0 / (1.0 + np.exp(-logit))
+        return prob.to_numpy()
+
+    def _mock_explain(
+        self, X: pd.DataFrame, ids: pd.Series, top_k: int | None
+    ) -> pd.DataFrame:
+        """mock SHAP: 랜덤 기여도 생성."""
+        from yeda.schema import EXPLANATION_COLUMNS, ID_COL
+
+        rng = np.random.default_rng(42)
+        rows = []
+        for i in range(len(X)):
+            values = rng.normal(0, 5, size=len(FEATURE_NAMES))
+            order = np.argsort(-np.abs(values))
+            if top_k:
+                order = order[:top_k]
+            for j in order:
+                rows.append(
+                    {
+                        ID_COL: str(ids.iloc[i]),
+                        "feature": FEATURE_NAMES[j],
+                        "shap_value_pp": float(values[j]),
+                        "feature_value": float(X.iloc[i][FEATURE_NAMES[j]]),
+                        "direction": "기여" if values[j] >= 0 else "위험",
+                    }
+                )
+        return pd.DataFrame(rows, columns=list(EXPLANATION_COLUMNS))
+
+    def _mock_optimize(self, values: dict[str, float]) -> dict[str, Any]:
+        """mock 최적화: 조정 가능 변수를 범위 중앙으로 이동."""
+        from yeda.schema import ADJUSTABLE, SPEC_BY_NAME
+
+        baseline_prob = self.predict_one(values)
+        recommendations = []
+        suggested = dict(values)
+
+        for name in list(ADJUSTABLE)[:3]:
+            spec = SPEC_BY_NAME[name]
+            mid = (spec.low + spec.high) / 2
+            if abs(values[name] - mid) < 1e-6:
+                continue
+            delta = mid - values[name]
+            suggested[name] = mid
+            recommendations.append(
+                {
+                    "feature": name,
+                    "current_value": values[name],
+                    "suggested_value": mid,
+                    "delta": delta,
+                    "unit": spec.unit,
+                    "expected_gain_pp": 2.0,
+                }
+            )
+
+        optimized_prob = self.predict_one(suggested)
+        gain_pp = (optimized_prob - baseline_prob) * 100.0
+
+        return {
+            "baseline_prob": baseline_prob,
+            "optimized_prob": optimized_prob,
+            "gain_pp": gain_pp,
+            "recommendations": recommendations,
+            "formatted_text": [f"Mock: {len(recommendations)}개 변수 조정 제안"],
+            "n_evaluations": 0,
         }
 
 
-# Process-wide default used by straightforward router imports.  The class is
-# also public so tests can isolate model paths without mutating global state.
-ml_service = MLService()
-is_loaded = ml_service.is_loaded
-is_mock = ml_service.is_mock
+@lru_cache(maxsize=1)
+def get_ml_service() -> MLService:
+    """MLService 싱글톤을 반환한다 (FastAPI Depends 용)."""
+    return get_ml_service._instance
 
 
-def reload_model(model_path: str | os.PathLike[str] | None = None) -> bool:
-    """Reload the default service and refresh its module-level status flags."""
-    loaded = ml_service.load_model(model_path)
-    global is_loaded, is_mock
-    is_loaded = ml_service.is_loaded
-    is_mock = ml_service.is_mock
-    return loaded
+# 모듈 로드 시 인스턴스 생성하지 않고, 앱 startup 에서 초기화
+get_ml_service._instance = None  # type: ignore[attr-defined]
+
+
+def initialize_service() -> MLService:
+    """서비스를 초기화하고 캐시한다. FastAPI lifespan 에서 호출."""
+    service = MLService()
+    get_ml_service._instance = service  # type: ignore[attr-defined]
+    get_ml_service.cache_clear()
+    return service
+
+
+def _current_service() -> MLService:
+    """Lifespan 전 직접 호출에도 동일한 DI singleton을 반환한다."""
+    service = get_ml_service()
+    return service if service is not None else initialize_service()
 
 
 def predict(values: Any) -> float | list[float]:
-    """Module-level success-probability API used by prediction routers."""
-    return ml_service.predict(values)
-
-
-def predict_proba(values: Any) -> np.ndarray:
-    """Module-level batch probability API for explain/optimize consumers."""
-    return ml_service.predict_proba(values)
+    """모듈 수준 픽업 성공확률 API."""
+    return _current_service().predict(values)
 
 
 def predict_yield(values: Any) -> float:
-    """Return mean pickup-success probability as batch yield percent."""
-    return ml_service.predict_yield(values)
+    """모듈 수준 배치 예상 수율(%) API."""
+    return _current_service().predict_yield(values)
 
 
 def predict_defect_rate(values: Any) -> float:
-    """Return predicted batch defect-rate percent (``100 - yield``)."""
-    return ml_service.predict_defect_rate(values)
+    """모듈 수준 배치 예상 불량률(%) API."""
+    return _current_service().predict_defect_rate(values)
 
 
 def get_shap_background(
     n_samples: int = 200,
     random_state: int = 0,
 ) -> pd.DataFrame:
-    """Module-level SHAP background-data API."""
-    return ml_service.get_shap_background(n_samples, random_state)
-
-
-def get_model_status() -> dict[str, Any]:
-    """Return the default service's current state."""
-    return ml_service.status()
+    """모듈 수준 SHAP 배경 데이터 API."""
+    return _current_service().get_shap_background(n_samples, random_state)
 
 
 __all__ = [
     "MLService",
-    "get_model_status",
-    "get_shap_background",
-    "is_loaded",
-    "is_mock",
-    "ml_service",
+    "get_ml_service",
+    "initialize_service",
     "predict",
-    "predict_defect_rate",
-    "predict_proba",
     "predict_yield",
-    "reload_model",
+    "predict_defect_rate",
+    "get_shap_background",
 ]

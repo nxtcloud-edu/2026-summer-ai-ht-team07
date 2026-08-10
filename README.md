@@ -88,88 +88,129 @@ YEDA가 이 트랙에 정확히 대응하는 이유는 세 가지다.
 
 ---
 
-## 시스템 아키텍처
+## 시스템 아키텍처 — 3-Tier
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  데이터 계층                                                          │
-│                                                                     │
-│   configs/data_gen.yaml ──┐                                         │
-│   (공정 물리 파라미터)      │                                          │
-│                          ▼                                          │
-│              data/generator.py ──→ data/raw/yeda_synthetic.csv      │
-│              (확률적 라벨 생성)         8,000행 × 13변수 + 타겟          │
-│                          │                                          │
-│                          ▼                                          │
-│              data/preprocess.py ──→ 결측 대치 · 홀드아웃 분리           │
-└──────────────────────────┬──────────────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────────────┐
-│  모델 계층                                                            │
-│                                                                     │
-│   LogisticRegression   RandomForest   LightGBM   LightGBM+단조제약    │
-│      (베이스라인)                                    ★ 본선 모델        │
-│           └──────────────┴──────────────┴───────────────┘           │
-│                          │  3종 비교 → 왜 이 모델인가에 답한다          │
-│                          ▼                                          │
-│              artifacts/models/primary_model.joblib                  │
-└──────────────────────────┬──────────────────────────────────────────┘
-                           │  ModelBundle (모델 + 피처순서 + 대치값)
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-┌──────────────────┐ ┌──────────────┐ ┌──────────────────┐
-│ 설명              │ │ 최적화        │ │ 알림              │
-│ shap_explainer   │ │ search.py    │ │ email.py         │
-│                  │ │              │ │                  │
-│ TreeExplainer    │ │ 조정가능 변수만 │ │ 임계값 초과 시      │
-│ model_output=    │ │ 물리범위 제약  │ │ SMTP 발송         │
-│  "probability"   │ │ 분해능 스냅    │ │ (기본 dry-run)    │
-│ → %p 단위 기여도  │ │ → %p 개선폭   │ │                  │
-└────────┬─────────┘ └──────┬───────┘ └────────┬─────────┘
-         └──────────────────┼──────────────────┘
-                            ▼
-              ┌──────────────────────────────┐
-              │  app/streamlit_app.py         │
-              │  ① 예측 ② 원인 ③ 가이드 ④ 알림  │
-              │                              │
-              │  backend.py 가 실물/mock 전환  │
-              │  → 모델 없이도 앱이 뜬다        │
-              └──────────────────────────────┘
-
-  [별도 분리]  secom/pipeline.py — UCI SECOM 일반화 검증
-               메인 데모와 완전 독립. 실행도 `make secom` 으로 분리.
+┌─────────────────┐       HTTP/JSON      ┌─────────────────────┐       SQL        ┌──────────────┐
+│   Tier 1        │  ──────────────────▶  │      Tier 2         │  ─────────────▶  │   Tier 3     │
+│   Frontend      │  ◀──────────────────  │      Backend API    │  ◀─────────────  │   Database   │
+│                 │                       │                     │                  │              │
+│   S3 Static     │                       │   EC2 :8000         │                  │   MySQL      │
+│   HTML/JS/CSS   │                       │   FastAPI (Python)  │                  │              │
+└─────────────────┘                       └─────────────────────┘                  └──────────────┘
 ```
 
-### 설계상 중요한 두 가지 경계
+| 항목 | 1-Tier (기존 Streamlit) | 3-Tier (현재) |
+|---|---|---|
+| 화면이 있는 곳 | EC2 (Streamlit) | **S3** |
+| 로직이 도는 곳 | 같은 EC2 | **EC2 :8000 (FastAPI)** |
+| 데이터 위치 | 서버 메모리 | **MySQL** |
+| 서버 재시작 | 데이터 사라짐 | **유지됨** |
+| 서버가 멈추면 | 화면도 안 뜸 | **화면은 뜸** |
+| DB 비밀번호 | 해당 없음 | **EC2 안에만** |
+
+### API 엔드포인트
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | `/api/health` | 헬스체크 (모델 로드 상태) |
+| GET | `/api/presets` | 데모 프리셋 목록 |
+| POST | `/api/predict` | 13개 변수 → 성공 확률 + 위험 등급 |
+| POST | `/api/explain` | SHAP 기여도 분해 (%p 단위) |
+| POST | `/api/optimize` | 조정 가능 변수 최적화 제안 |
+| POST | `/api/alert` | 알림 트리거 (dry-run 기본) |
+| GET | `/api/history` | 예측 이력 조회 |
+
+### ML 파이프라인
+
+```
+configs/data_gen.yaml ──→ make data ──→ data/raw/yeda_synthetic.csv
+                                              │
+configs/model.yaml ─────→ make train ─→ artifacts/models/primary_model.joblib
+                                              │
+                                              ▼
+                              api/services/ml_service.py (모델 자동 로드)
+                                     │
+          ┌────────────────┬─────────┼─────────────┐
+          ▼                ▼         ▼             ▼
+   shap_explainer.py   search.py   email.py    predict_proba
+   (SHAP %p 분해)     (조건 탐색)  (알림)       (수율 예측)
+```
+
+### 설계상 중요한 경계
 
 **1. 생성 규칙과 최적화 가이드의 방화벽**
 
-`optimize/` 와 `explain/` 은 `data/physics.py` 를 **import 하지 않는다.**
-생성기의 임계값을 최적화 가이드의 정답으로 재사용하면 "정답을 넣고 정답을 꺼낸" 순환 논리가 되기
-때문이다. 가이드는 오직 **학습된 모델의 `predict_proba`** 로부터 유도된다.
-이 규칙은 사람의 기억이 아니라 `tests/test_contracts.py::test_no_generator_leak` 이 강제한다.
+`optimize/`와 `explain/`은 `data/physics.py`를 import하지 않는다.
+생성기의 임계값을 정답으로 재사용하면 순환 논리가 된다.
+이 규칙은 `tests/test_contracts.py::test_no_generator_leak`이 강제한다.
 
 **2. 조정 가능 / 불가능 변수의 분리**
 
-`die_thickness`(제품 사양), `tape_type`(자재), `runtime_hours`·`vacuum_status`(설비 상태)는
-최적화 탐색 공간에서 **구조적으로 제외**된다 (`schema.ADJUSTABLE`).
-"다이 두께를 바꾸세요"는 "제품을 바꾸세요"와 같은 말이고, 그 순간 실무자 신뢰를 잃는다.
+`die_thickness`(제품), `tape_type`(자재), `runtime_hours`·`vacuum_status`(설비 상태)는
+최적화 탐색 공간에서 구조적으로 제외된다 (`schema.ADJUSTABLE`).
+
+**3. Mock 폴백**
+
+모델 파일이 없어도 API 서버가 mock 모드로 정상 동작한다. 데모가 멈추는 일이 없다.
+
+### 설계상 중요한 두 가지 경계
+
+위 아키텍처 섹션에 설명됨.
 
 ---
 
 ## 설치 및 실행
 
+### 환경 셋업
+
 ```bash
-pip install -r requirements.txt   # Python 3.11+
-make data && make train           # 데이터 생성 + 모델 학습 (약 1분)
-make demo                         # http://localhost:8501
+# Python 3.11+ 필요
+python -m venv .venv
+
+# Windows
+.\.venv\Scripts\Activate.ps1
+# macOS/Linux
+source .venv/bin/activate
+
+# UTF-8 설정 (Windows 한글 환경)
+$env:PYTHONUTF8 = "1"   # PowerShell
+# export PYTHONUTF8=1    # bash
+
+pip install -r requirements.txt
 ```
 
-> `make demo` 만 실행해도 된다. 데이터·모델이 없으면 자동으로 만든 뒤 앱을 띄운다.
-> 학습된 모델이 없어도 **mock 모드로 화면은 뜬다** (화면에 경고 배지가 표시된다).
+### ML 파이프라인 실행
+
+```bash
+make data           # 합성 데이터 생성 (약 10초)
+make train          # 모델 4종 학습·비교 (약 30초)
+make test           # 테스트 실행 (51개)
+```
+
+### 3-Tier 실행
+
+```bash
+# Tier 2: API 서버 (포트 8000)
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Tier 1: 프론트엔드 (별도 터미널 — E 파트 구현 후)
+# python -m http.server 3000 --directory frontend
+
+# Tier 3: MySQL (B 파트 구현 후)
+# mysql -u root < scripts/init_db.sql
+```
+
+### 레거시 Streamlit (1-Tier 모드)
+
+```bash
+make demo           # http://localhost:8501 (기존 Streamlit UI)
+```
+
+> 학습된 모델이 없어도 **mock 모드로 동작**한다 (API 서버, Streamlit 모두).
 
 <details>
-<summary>전체 명령 목록</summary>
+<summary>전체 Makefile 명령 목록</summary>
 
 ```
 make setup       의존성 설치
@@ -177,7 +218,7 @@ make data        합성 데이터 생성 + 검수
 make check       기존 데이터 검수만
 make train       모델 4종 학습·비교
 make train-fast  교차검증 생략 학습
-make demo        Streamlit 데모 실행
+make demo        Streamlit 데모 실행 (레거시)
 make test        pytest 실행
 make all         data → train → test
 make clean       생성물 삭제
@@ -196,7 +237,23 @@ make secom       SECOM 일반화 검증 (우선순위 낮음)
 ├── TIMELINE.md             24시간 마일스톤 (M3에서 end-to-end 필수)
 ├── Makefile                make data / train / demo
 ├── requirements.txt        버전 고정 의존성
-├── .env.example            SMTP 설정 예시 (.env 는 커밋 금지)
+├── .env.example            SMTP + DB 설정 예시 (.env 는 커밋 금지)
+│
+├── api/                    ★ Tier 2 — FastAPI 백엔드 (EC2 :8000)
+│   ├── main.py               앱 엔트리포인트 (CORS, 라우터 등록, health)
+│   ├── routers/
+│   │   ├── predict.py        POST /api/predict, /api/explain
+│   │   ├── optimize.py       POST /api/optimize
+│   │   ├── alert.py          POST /api/alert
+│   │   └── history.py        GET /api/history, /api/presets
+│   ├── models/
+│   │   ├── request.py        Pydantic 요청 스키마 (13피처 bounds 검증)
+│   │   └── response.py       Pydantic 응답 스키마
+│   └── services/
+│       └── ml_service.py     ML 서비스 (모델 로드, 예측, SHAP, 최적화)
+│
+├── frontend/               Tier 1 — S3 정적 호스팅 (E 파트)
+│   └── (구현 예정)
 │
 ├── configs/                모든 파라미터를 코드 밖으로
 │   ├── data_gen.yaml         공정 물리 계수 · 상호작용 · 노이즈  [소유: A]
@@ -204,7 +261,7 @@ make secom       SECOM 일반화 검증 (우선순위 낮음)
 │   ├── optimize.yaml         탐색 전략 · 현장 수용성 제약         [소유: D]
 │   └── app.yaml              UI · 알림 · 데모 프리셋              [소유: E]
 │
-├── src/yeda/
+├── src/yeda/               ML 코어 라이브러리
 │   ├── schema.py           ★ 공용 계약 — 컬럼·범위·조정가능·단조성
 │   ├── io_utils.py           경로 · 설정 로딩
 │   ├── text_utils.py         한국어 조사 처리
@@ -225,14 +282,25 @@ make secom       SECOM 일반화 검증 (우선순위 낮음)
 │   └── secom/
 │       └── pipeline.py       SECOM 일반화 검증 (완전 분리)
 │
-├── app/
+├── app/                    레거시 Streamlit UI (1-Tier 참조용)
 │   ├── streamlit_app.py    메인 화면 (탭 4개)
 │   └── components/
 │       ├── backend.py        실물/mock 자동 전환 어댑터
 │       └── mock_backend.py   UI가 모델을 기다리지 않게 하는 stub
 │
-├── scripts/                CLI 진입점
-├── tests/                  계약 · 생성기 · 최적화 회귀 테스트
+├── scripts/                CLI 진입점 + 배포
+│   ├── make_data.py          데이터 생성 CLI
+│   ├── train.py              모델 학습 CLI
+│   ├── init_db.sql           MySQL 스키마 초기화 (B 파트)
+│   └── deploy.sh            배포 스크립트 (B 파트)
+│
+├── tests/                  계약 · 생성기 · 최적화 · API 테스트
+│   ├── test_api.py           FastAPI 엔드포인트 테스트 (23개)
+│   ├── test_contracts.py     모듈 간 계약 테스트
+│   ├── test_generator.py     생성기 회귀 테스트
+│   ├── test_optimize.py      최적화 계약 테스트
+│   └── test_schema.py        스키마 검증 테스트
+│
 ├── docs/                   물리 근거 · 데이터 카드 · Q&A 방어 · 아키텍처
 ├── notebooks/              탐색 전용 (프로덕션 로직 금지)
 │
@@ -390,11 +458,11 @@ LightGBM의 `monotone_constraints` 로 **물리적으로 방향이 확정된 8�
 
 | 역할 | 전공 | 담당 |
 |---|---|---|
-| 공정물리 · 데이터 검수 | 전자공학과 | 변수 물리 관계 정의, 생성 규칙 검수, Q&A 기술 방어 |
-| 계측 · IoT 아키텍처 | 전기정보공학과 | 센서 연동 설계, SECOM 검증, Q&A 방어 논리 |
-| 데이터 · 모델 | 인공지능·소프트웨어학과 | 생성기 구현, 3종 모델 비교, 평가 |
-| 설명 · 최적화 | 인공지능·소프트웨어학과 | SHAP 분해, 조건 탐색, 가이드 생성 |
-| UI · 통합 · 데모 | 인공지능·소프트웨어학과 | Streamlit, 알림, 데모 안정화 |
+| A — 공정물리 · 데이터 검수 | 전자공학과 | 변수 물리 관계 정의, 생성 규칙 검수, 합성 데이터 방어 |
+| B — DB · 인프라 · Q&A 방어 | 전기정보공학과 | MySQL 스키마, 배포 인프라, 3-Tier 아키텍처 문서, Q&A |
+| C — 데이터 · 모델 · ML 서비스 | 인공지능·소프트웨어학과 | 생성기 구현, 3종 모델 비교, API 모델 서비스 |
+| D — API 라우터 · 설명 · 최적화 | 인공지능·소프트웨어학과 | FastAPI 라우터, SHAP 분해, 조건 탐색 |
+| E — 프론트엔드 · 통합 · 데모 | 인공지능·소프트웨어학과 | 정적 프론트엔드, FastAPI 앱 통합, 데모 안정화 |
 
 > 상세한 파일 소유권·완료 정의·백업 담당은 [`ROLES.md`](ROLES.md) 참조.
 > **TODO(팀장): 킥오프 때 실제 이름을 채울 것.**

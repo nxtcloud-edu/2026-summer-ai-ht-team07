@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from ..io_utils import load_config, resolve, save_json
-from ..schema import FEATURE_NAMES, MONOTONE_CONSTRAINTS
+from ..schema import BOUNDS, FEATURE_NAMES, MONOTONE_CONSTRAINTS
 
 
 @dataclass
@@ -165,3 +165,50 @@ def load_bundle_or_none(config: dict[str, Any] | None = None) -> ModelBundle | N
 def default_feature_order() -> list[str]:
     """스키마 기준 기본 피처 순서."""
     return list(FEATURE_NAMES)
+
+
+def assert_monotone_prediction(
+    bundle: ModelBundle,
+    *,
+    feature: str = "pin_speed",
+    n_points: int = 101,
+    atol: float = 1e-10,
+) -> bool:
+    """단조 제약 설정과 실제 예측 방향을 함께 검사한다.
+
+    다른 피처는 학습 세트 대치값에 고정하고 feature 하나만 물리 범위
+    전체에서 변화시킨다. 설정 벡터가 스키마와 다르거나 예측 방향을 위반하면
+    학습 파이프라인을 즉시 실패시킨다.
+    """
+    if feature not in FEATURE_NAMES:
+        raise KeyError(f"스키마에 없는 피처: {feature}")
+    if n_points < 2:
+        raise ValueError("n_points 는 2 이상이어야 합니다.")
+    if atol < 0:
+        raise ValueError("atol 은 0 이상이어야 합니다.")
+
+    feature_index = FEATURE_NAMES.index(feature)
+    direction = MONOTONE_CONSTRAINTS[feature_index]
+    if direction == 0:
+        raise ValueError(f"단조 제약이 없는 피처는 검증할 수 없습니다: {feature}")
+
+    actual = bundle.model.get_params().get("monotone_constraints")
+    if actual is None or list(actual) != list(MONOTONE_CONSTRAINTS):
+        raise AssertionError(
+            "학습 모델의 monotone_constraints 가 schema 순서와 일치하지 않습니다."
+        )
+
+    low, high = BOUNDS[feature]
+    probe = pd.DataFrame(
+        [bundle.imputer_values.copy() for _ in range(n_points)],
+        columns=bundle.feature_names,
+    )
+    probe[feature] = np.linspace(float(low), float(high), n_points)
+    delta = np.diff(bundle.predict_proba(probe))
+    violation = delta < -atol if direction > 0 else delta > atol
+    if np.any(violation):
+        first = int(np.flatnonzero(violation)[0])
+        raise AssertionError(
+            f"{feature} 단조 제약 위반: grid index {first} -> {first + 1}"
+        )
+    return True

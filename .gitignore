@@ -44,6 +44,9 @@ env/
 # 노트북 출력 — 리뷰 불가능한 diff를 만든다. 커밋 전 출력을 지울 것.
 notebooks/*.html
 
+# 압축 파일 — 원본 스켈레톤 zip 등 대용량 바이너리
+*.zip
+
 # OS / 에디터
 .DS_Store
 Thumbs.db
